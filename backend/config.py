@@ -82,10 +82,13 @@ def get_database_type():
 
 # ==================== 加密配置 ====================
 # AES-256加密密钥（32字节）- 生产环境必须从环境变量读取
-ENCRYPTION_KEY = os.getenv(
-    "AUTO_GEO_ENCRYPTION_KEY",
-    "auto-geo-default-key-32-bytes-length!!",  # 32字节密钥
-).encode()[:32]  # 确保是32字节
+_encryption_key = os.getenv("AUTO_GEO_ENCRYPTION_KEY")
+if not _encryption_key:
+    raise ValueError(
+        "AUTO_GEO_ENCRYPTION_KEY environment variable is required. "
+        "Please set a 32-byte encryption key."
+    )
+ENCRYPTION_KEY = _encryption_key.encode()[:32]  # 确保是32字节
 
 # ==================== Playwright配置 ====================
 # 部署模式：local(本地), cloud(云端), hybrid(混合)
@@ -526,8 +529,13 @@ DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
 # ==================== RAGFlow 配置 ====================
 # RAGFlow 服务地址
 RAGFLOW_BASE_URL = os.getenv("RAGFLOW_BASE_URL", "https://ragflow.xinzhixietong.com")
-# RAGFlow API Key
-RAGFLOW_API_KEY = os.getenv("RAGFLOW_API_KEY", "ragflow-54x_gvOP6KPjRqAROwfD1_uE7DnEcWn6zoczEeIQYIY")
+# RAGFlow API Key - 生产环境必须从环境变量读取
+RAGFLOW_API_KEY = os.getenv("RAGFLOW_API_KEY")
+if not RAGFLOW_API_KEY:
+    raise ValueError(
+        "RAGFLOW_API_KEY environment variable is required. "
+        "Please set your RAGFlow API key."
+    )
 # RAGFlow 知识库ID（用于存储采集的文章）
 RAGFLOW_DATASET_ID = os.getenv("RAGFLOW_DATASET_ID", "dff2935cfc2011f0b36f0e3309b7ec55")
 # RAGFlow 知识库名称（自动创建时使用）
