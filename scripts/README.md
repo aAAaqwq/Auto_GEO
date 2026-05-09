@@ -221,5 +221,47 @@ For issues or questions:
 
 ---
 
-**Updated**: 2026-02-24
-**Version**: v3.1.1
+## 🚀 后端部署脚本 (新增)
+
+### 快速开始
+
+```bash
+# 1. 配置环境变量
+cp .env.prod.example .env
+vim .env  # 填入真实配置
+
+# 2. 首次部署
+./scripts/deploy.sh
+
+# 3. 后续更新
+./scripts/update.sh
+
+# 4. 数据库备份
+./scripts/backup.sh
+```
+
+### 部署脚本说明
+
+| 脚本 | 用途 | 用法 |
+|------|------|------|
+| `deploy.sh` | 首次部署或完整重新部署 | `./scripts/deploy.sh [env文件]` |
+| `update.sh` | 更新到最新镜像（零停机） | `./scripts/update.sh` |
+| `backup.sh` | 数据库备份 | `./scripts/backup.sh` |
+
+### 故障排查
+
+```bash
+# 查看服务状态
+docker-compose -f docker-compose.prod.yml ps
+
+# 查看日志
+docker-compose -f docker-compose.prod.yml logs -f backend
+
+# 重启服务
+docker-compose -f docker-compose.prod.yml restart
+```
+
+---
+
+**Updated**: 2026-05-08
+**Version**: v3.2.0

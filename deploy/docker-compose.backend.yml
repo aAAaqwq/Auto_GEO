@@ -1,0 +1,162 @@
+# AutoGeo 后端生产环境部署配置
+# 版本: 3.0.0
+# 适用: 阿里云ECS生产部署
+
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL 数据库
+  # ============================================
+  postgres:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/postgres:15-alpine
+    container_name: autogeo_postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    environment:
+      POSTGRES_USER: ${DB_USER:-autogeo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-autogeo}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - autogeo_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-autogeo} -d ${DB_NAME:-autogeo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # Nginx 反向代理
+  # ============================================
+  nginx:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/nginx:alpine
+    container_name: autogeo_nginx
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - backend
+    networks:
+      - autogeo_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/nginx-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # FastAPI 后端服务
+  # ============================================
+  backend:
+    image: ${BACKEND_IMAGE:-crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend:latest}
+    container_name: autogeo_backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - DATABASE_URL=postgresql://${DB_USER:-autogeo}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-autogeo}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-10}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-20}
+      - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
+      - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
+      - API_HOST=0.0.0.0
+      - API_PORT=8001
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,app://.,file://}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - N8N_API_KEY=${N8N_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY}
+      - RAGFLOW_BASE_URL=${RAGFLOW_BASE_URL}
+      - AUTO_GEO_ENCRYPTION_KEY=${AUTO_GEO_ENCRYPTION_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=production
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - ./backups:/app/backups
+      - playwright_cache:/home/autogeo/.cache/ms-playwright
+    networks:
+      - autogeo_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+# ============================================
+# 网络配置
+# ============================================
+networks:
+  autogeo_network:
+    driver: bridge
+    name: autogeo_network
+
+# ============================================
+# 数据卷配置
+# ============================================
+volumes:
+  backend_data:
+    name: autogeo_backend_data
+  backend_logs:
+    name: autogeo_backend_logs
+  playwright_cache:
+    name: autogeo_playwright_cache
+  postgres_data:
+    name: autogeo_postgres_data
+  nginx_logs:
+    name: autogeo_nginx_logs

@@ -61,7 +61,24 @@ if _CORS_ORIGINS:
     CORS_ORIGINS.extend([origin.strip() for origin in _CORS_ORIGINS.split(",")])
 
 # ==================== 数据库配置 ====================
-DATABASE_URL = f"sqlite:///{DATABASE_DIR}/auto_geo_v3.db"
+# 数据库URL支持多种格式：
+# - SQLite: sqlite:///./auto_geo.db
+# - PostgreSQL: postgresql://user:password@localhost:5432/auto_geo
+# - PostgreSQL with pool: postgresql+psycopg2://user:password@host:5432/db?pool_size=20
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_DIR}/auto_geo_v3.db")
+
+# 数据库连接池配置 (仅PostgreSQL有效)
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+
+# 数据库类型检测
+def get_database_type():
+    """检测数据库类型"""
+    if "postgresql" in DATABASE_URL.lower():
+        return "postgresql"
+    return "sqlite"
 
 # ==================== 加密配置 ====================
 # AES-256加密密钥（32字节）- 生产环境必须从环境变量读取

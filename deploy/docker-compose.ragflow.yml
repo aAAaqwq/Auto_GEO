@@ -1,0 +1,208 @@
+# RAGFlow 生产环境部署配置
+# 版本: 1.0.0
+# 适用: 阿里云ECS独立部署
+# 注意: RAGFlow资源需求较高，建议单独服务器部署
+
+version: '3.8'
+
+services:
+  # ============================================
+  # RAGFlow 主服务
+  # ============================================
+  ragflow:
+    image: registry.cn-hangzhou.aliyuncs.com/ragflow/ragflow:latest
+    container_name: ragflow_server
+    restart: unless-stopped
+    environment:
+      # 基础配置
+      - RAGFLOW_HOST=0.0.0.0
+      - RAGFLOW_PORT=9380
+
+      # MySQL配置
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=ragflow
+
+      # Redis配置
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+
+      # MinIO配置（文档存储）
+      - MINIO_HOST=minio
+      - MINIO_PORT=9000
+      - MINIO_USER=${MINIO_USER:-minio}
+      - MINIO_PASSWORD=${MINIO_PASSWORD}
+
+      # ES配置
+      - ES_HOST=es01
+      - ES_PORT=9200
+
+      # 其他配置
+      - TIMEZONE=Asia/Shanghai
+      - TZ=Asia/Shanghai
+
+    ports:
+      - "9380:9380"
+    volumes:
+      - ragflow_data:/ragflow
+      - ./ssl:/ssl:ro
+    networks:
+      - ragflow_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      es01:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9380/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # MySQL - RAGFlow元数据存储
+  # ============================================
+  mysql:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/mysql:8.0
+    container_name: ragflow_mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=ragflow
+      - TZ=Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ragflow_network
+    command: --max-allowed-packet=256M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # Redis - 缓存和消息队列
+  # ============================================
+  redis:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/redis:7-alpine
+    container_name: ragflow_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - ragflow_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # MinIO - 文档对象存储
+  # ============================================
+  minio:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/minio:latest
+    container_name: ragflow_minio
+    restart: unless-stopped
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USER:-minio}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks:
+      - ragflow_network
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ============================================
+  # Elasticsearch - 向量检索
+  # ============================================
+  es01:
+    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/elasticsearch:8.11.3
+    container_name: ragflow_es01
+    restart: unless-stopped
+    environment:
+      - node.name=es01
+      - cluster.name=ragflow-es-cluster
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - TZ=Asia/Shanghai
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - ragflow_network
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+# ============================================
+# 网络配置
+# ============================================
+networks:
+  ragflow_network:
+    driver: bridge
+    name: ragflow_network
+
+# ============================================
+# 数据卷配置
+# ============================================
+volumes:
+  ragflow_data:
+    name: ragflow_data
+  mysql_data:
+    name: ragflow_mysql_data
+  redis_data:
+    name: ragflow_redis_data
+  minio_data:
+    name: ragflow_minio_data
+  es_data:
+    name: ragflow_es_data
