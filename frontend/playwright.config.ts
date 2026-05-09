@@ -2,10 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright 配置
- * 测试文件路径指向根目录的 tests/frontend_tests
+ * 测试文件路径指向根目录的 tests/e2e
  */
 export default defineConfig({
-  testDir: '../tests/frontend_tests',
+  testDir: '../tests/e2e',
 
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
