@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.database.models import KnowledgeCategory, Knowledge
-from backend.schemas import ApiResponse
+from backend.schemas import ApiResponse, PaginatedResponse
 from loguru import logger
 
 
@@ -89,34 +89,28 @@ class KnowledgeResponse(BaseModel):
 # ==================== 知识库分类API ====================
 
 
-@router.get("/categories", response_model=List[KnowledgeCategoryResponse])
-async def get_categories(search: Optional[str] = None, db: Session = Depends(get_db)):
+@router.get("/categories", response_model=PaginatedResponse[KnowledgeCategoryResponse])
+async def get_categories(
+    page: int = Query(1, ge=1, description="页码"),
+    limit: int = Query(20, ge=1, le=100, description="每页数量"),
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """
-    获取知识库分类列表
-    从RAGFlow获取数据并更新SQLite缓存
-
-    Args:
-        search: 搜索关键词（可选）
-        db: 数据库会话
-
-    Returns:
-        分类列表
+    获取知识库分类列表（支持分页）
     """
+    # ... 同步RAGFlow的代码保持不变 ...
     from backend.services.ragflow_client import get_ragflow_client
 
     try:
-        # 1. 从RAGFlow获取所有知识库
         ragflow_client = get_ragflow_client()
         ragflow_result = ragflow_client.list_datasets()
 
         if ragflow_result.get("code") == 0:
             ragflow_datasets = ragflow_result.get("data", [])
 
-            # 2. 同步到SQLite缓存
             for dataset in ragflow_datasets:
                 ragflow_dataset_id = dataset.get("id")
-
-                # 检查是否存在
                 category = (
                     db.query(KnowledgeCategory)
                     .filter(KnowledgeCategory.ragflow_dataset_id == ragflow_dataset_id)
@@ -124,13 +118,11 @@ async def get_categories(search: Optional[str] = None, db: Session = Depends(get
                 )
 
                 if category:
-                    # 更新缓存
                     category.name = dataset.get("name")
                     category.description = dataset.get("description", "")
                     category.sync_status = "synced"
                     category.last_sync_at = datetime.now()
                 else:
-                    # 创建缓存
                     category = KnowledgeCategory(
                         ragflow_dataset_id=ragflow_dataset_id,
                         name=dataset.get("name"),
@@ -144,7 +136,7 @@ async def get_categories(search: Optional[str] = None, db: Session = Depends(get
     except Exception as e:
         logger.warning(f"从RAGFlow同步分类失败，使用SQLite缓存: {e}")
 
-    # 3. 从SQLite返回（带搜索）
+    # 查询（带搜索）
     query = db.query(KnowledgeCategory).filter(KnowledgeCategory.status == 1)
 
     if search:
@@ -154,20 +146,22 @@ async def get_categories(search: Optional[str] = None, db: Session = Depends(get
             | (KnowledgeCategory.tags.like(f"%{search}%"))
         )
 
-    categories = query.order_by(KnowledgeCategory.updated_at.desc()).all()
+    # 统计总数
+    total = query.count()
 
+    # 分页查询
+    categories = query.order_by(KnowledgeCategory.updated_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    # 构建响应
     result = []
     for cat in categories:
-        # 统计知识数量（从缓存获取）
         knowledge_count = (
             db.query(Knowledge)
             .filter(Knowledge.ragflow_dataset_id == cat.ragflow_dataset_id, Knowledge.status == 1)
             .count()
         )
 
-        # 统计关联项目数（根据行业匹配）
         from backend.database.models import Project
-
         project_count = (
             db.query(Project).filter(Project.industry == cat.industry, Project.status == 1).count()
             if cat.industry
@@ -189,7 +183,18 @@ async def get_categories(search: Optional[str] = None, db: Session = Depends(get
             )
         )
 
-    return result
+    # 计算分页信息
+    pages = (total + limit - 1) // limit if total > 0 else 1
+
+    return PaginatedResponse(
+        total=total,
+        items=result,
+        page=page,
+        limit=limit,
+        pages=pages,
+        has_next=page < pages,
+        has_prev=page > 1
+    )
 
 
 @router.post("/categories", response_model=ApiResponse)

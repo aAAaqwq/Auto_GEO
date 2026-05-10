@@ -20,6 +20,7 @@ from backend.schemas import (
     AuthStatusResponse,
     ApiResponse,
     AccountCheckSummary,
+    PaginatedResponse,
 )
 from backend.config import PLATFORMS
 from backend.services.playwright_mgr import playwright_mgr
@@ -53,16 +54,17 @@ async def ws_notification(data: dict):
 playwright_mgr.set_ws_callback(ws_notification)
 
 
-@router.get("", response_model=List[AccountResponse])
+@router.get("", response_model=PaginatedResponse[AccountResponse])
 async def get_accounts(
+    page: int = Query(1, ge=1, description="页码"),
+    limit: int = Query(20, ge=1, le=100, description="每页数量"),
     platform: str = Query(None, description="平台筛选"),
     status: int = Query(None, description="状态筛选"),
+    keyword: str = Query(None, description="关键词搜索"),
     db: Session = Depends(get_db),
 ):
     """
-    获取账号列表
-
-    注意：支持按平台和状态筛选！
+    获取账号列表（支持分页）
     """
     query = db.query(Account)
 
@@ -70,9 +72,30 @@ async def get_accounts(
         query = query.filter(Account.platform == platform)
     if status is not None:
         query = query.filter(Account.status == status)
+    if keyword:
+        query = query.filter(
+            (Account.account_name.contains(keyword)) |
+            (Account.username.contains(keyword))
+        )
 
-    accounts = query.order_by(Account.created_at.desc()).all()
-    return accounts
+    # 统计总数
+    total = query.count()
+
+    # 分页查询
+    accounts = query.order_by(Account.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    # 计算分页信息
+    pages = (total + limit - 1) // limit if total > 0 else 1
+
+    return PaginatedResponse(
+        total=total,
+        items=accounts,
+        page=page,
+        limit=limit,
+        pages=pages,
+        has_next=page < pages,
+        has_prev=page > 1
+    )
 
 
 @router.get("/{account_id}", response_model=AccountDetailResponse)
