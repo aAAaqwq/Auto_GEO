@@ -54,7 +54,8 @@ services:
       QUEUE_BULL_REDIS_PORT: 6379
       QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD:-n8n_redis_2024}
 
-      # 时区
+      # 安全配置
+      N8N_SECURE_COOKIE: false
       GENERIC_TIMEZONE: Asia/Shanghai
       TZ: Asia/Shanghai
     volumes:
