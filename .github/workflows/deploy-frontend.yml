@@ -6,6 +6,7 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
+      - 'nginx/**'
   workflow_dispatch:
     inputs:
       deploy:
@@ -15,8 +16,6 @@ on:
 
 env:
   NODE_VERSION: '20'
-  ALIYUN_REGISTRY: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com
-  ALIYUN_IMAGE: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_frontend
 
 jobs:
   # ============================================
@@ -55,7 +54,7 @@ jobs:
           retention-days: 1
 
   # ============================================
-  # 部署到服务器
+  # 部署到服务器 (直接使用服务器 nginx)
   # ============================================
   deploy:
     name: Deploy to Server
@@ -92,47 +91,6 @@ jobs:
         working-directory: ./frontend
         run: npm run build:renderer
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Aliyun ACR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.ALIYUN_REGISTRY }}
-          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
-          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
-
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.ALIYUN_IMAGE }}:latest
-            ${{ env.ALIYUN_IMAGE }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/aAAaqwq/Auto_GEO
-            org.opencontainers.image.description=AutoGeo Frontend
-          build-args: |
-            VITE_API_BASE_URL=http://${{ secrets.SERVER_HOST }}/api
-            VITE_WS_URL=ws://${{ secrets.SERVER_HOST }}/ws
-            VITE_STATIC_URL=http://${{ secrets.SERVER_HOST }}/static
-            VITE_ENABLE_MOCK=false
-            VITE_APP_TITLE=AutoGeo
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Ensure target directory exists
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
-          script: |
-            mkdir -p ~/Auto_GEO/deploy/nginx/html
-
       - name: Deploy to server via SSH
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -141,7 +99,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           source: "frontend/out/renderer/*"
-          target: "~/Auto_GEO/deploy/nginx/html"
+          target: "/var/www/html"
           strip_components: 2
           rm: true
 
@@ -157,7 +115,6 @@ jobs:
             echo "🚀 [Frontend] 开始部署..."
 
             PROJECT_DIR="$HOME/Auto_GEO"
-            NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 
             # 如果目录不存在，克隆项目
             if [ ! -d "$PROJECT_DIR/.git" ]; then
@@ -171,43 +128,32 @@ jobs:
               }
             fi
 
-            # 拉取最新代码
-            echo "📥 拉取最新代码..."
             cd "$PROJECT_DIR"
-            git fetch origin
-            git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
-            # 设置nginx目录
-            NGINX_DIR="$PROJECT_DIR/deploy/nginx"
+            # 确保 nginx html 目录存在
+            sudo mkdir -p /var/www/html
 
-            # 确保nginx配置目录存在
-            mkdir -p "$NGINX_DIR/conf.d"
-            mkdir -p "$NGINX_DIR/ssl"
+            # 复制前端文件到 nginx 目录
+            sudo cp -rf frontend/out/renderer/* /var/www/html/
 
-            # 复制nginx配置文件（从仓库同步）
-            if [ -f "$PROJECT_DIR/nginx/nginx.conf" ]; then
-              cp -f "$PROJECT_DIR/nginx/nginx.conf" "$NGINX_DIR/nginx.conf"
-            fi
-            if [ -d "$PROJECT_DIR/nginx/conf.d" ]; then
-              cp -f "$PROJECT_DIR/nginx/conf.d/*.conf" "$NGINX_DIR/conf.d/" 2>/dev/null || true
+            # 复制并部署 nginx 配置
+            if [ -f "nginx/server-frontend.conf" ]; then
+              echo "📝 部署 nginx 配置..."
+              sudo cp -f nginx/server-frontend.conf /etc/nginx/sites-available/autogeo.conf
+              sudo ln -sf /etc/nginx/sites-available/autogeo.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+              # 移除默认配置
+              sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
             fi
 
-            # 确保html目录存在
-            mkdir -p "$NGINX_DIR/html"
+            # 检查 nginx 配置语法
+            sudo nginx -t
 
-            cd "$PROJECT_DIR/deploy"
-
-            # 检查 Nginx 容器是否运行
-            if docker-compose -f docker-compose.backend.yml ps nginx | grep -q "Up"; then
-              echo "🔄 重载 Nginx 配置..."
-              docker-compose -f docker-compose.backend.yml exec -T nginx nginx -s reload || {
-                echo "⚠️ Nginx reload 失败，尝试重启..."
-                docker-compose -f docker-compose.backend.yml restart nginx
-              }
-            else
-              echo "🚀 启动 Nginx..."
-              docker-compose -f docker-compose.backend.yml up -d nginx
-            fi
+            # 重载 nginx
+            sudo nginx -s reload || sudo systemctl reload nginx || sudo service nginx reload || {
+              echo "⚠️ Nginx reload 失败，尝试重启..."
+              sudo nginx -s stop 2>/dev/null || true
+              sudo nginx
+            }
 
             echo ""
             echo "========================================"
@@ -223,5 +169,5 @@ jobs:
           echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
           echo "| 服务器 | ${{ secrets.SERVER_HOST }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 部署目录 | ~/Auto_GEO/deploy/nginx/html |" >> $GITHUB_STEP_SUMMARY
+          echo "| 部署目录 | /var/www/html |" >> $GITHUB_STEP_SUMMARY
           echo "| 访问地址 | http://${{ secrets.SERVER_HOST }} |" >> $GITHUB_STEP_SUMMARY
