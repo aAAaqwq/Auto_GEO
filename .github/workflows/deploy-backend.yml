@@ -20,7 +20,7 @@ on:
 env:
   PYTHON_VERSION: '3.12'
   ALIYUN_REGISTRY: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com
-  ALIYUN_IMAGE: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo
+  ALIYUN_IMAGE: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend
 
 jobs:
   # ============================================
@@ -109,7 +109,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ALIYUN_IMAGE }}/backend
+          images: ${{ env.ALIYUN_IMAGE }}
           tags: |
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -199,7 +199,7 @@ jobs:
             fi
 
             # 设置默认的镜像地址
-            export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}/backend:latest"
+            export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}/latest"
             export DB_USER="${DB_USER:-autogeo}"
             export DB_NAME="${DB_NAME:-autogeo}"
             export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
