@@ -199,7 +199,7 @@ jobs:
             fi
 
             # 设置默认的镜像地址
-            export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}/latest"
+            export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}:latest"
             export DB_USER="${DB_USER:-autogeo}"
             export DB_NAME="${DB_NAME:-autogeo}"
             export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
