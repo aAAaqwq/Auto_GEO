@@ -1,11 +1,8 @@
-# AutoGeo 后端生产环境部署配置（简化版 - 共享 n8n 数据库）
-# 版本: 3.3.0
-# 说明: 使用 n8n 的 PostgreSQL 和 Redis，无需重复部署
+# AutoGeo 后端生产环境部署配置（极简版）
+# 版本: 3.3.1
+# 说明: 只部署后端服务，使用服务器Nginx做反向代理
 
 services:
-  # ============================================
-  # FastAPI 后端服务（使用 n8n 的数据库）
-  # ============================================
   backend:
     image: ${BACKEND_IMAGE:-crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend:latest}
     container_name: autogeo_backend
@@ -22,7 +19,6 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      # 使用 n8n 的 PostgreSQL（数据库名：autogeo）
       - DATABASE_URL=postgresql://n8n:${N8N_DB_PASSWORD:-n8n_password_2024}@n8n_postgres:5432/autogeo
       - DB_POOL_SIZE=${DB_POOL_SIZE:-10}
       - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-20}
@@ -46,7 +42,6 @@ services:
       - ./backups:/app/backups
       - playwright_cache:/ms-playwright
     networks:
-      # 连接到 n8n 的网络，使用 n8n 的数据库
       - n8n_network
     restart: unless-stopped
     healthcheck:
@@ -61,57 +56,11 @@ services:
         max-size: "100m"
         max-file: "3"
 
-  # ============================================
-  # Nginx 反向代理 + 静态文件服务
-  # ============================================
-  nginx:
-    image: nginx:alpine
-    container_name: autogeo_nginx
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: '256M'
-        reservations:
-          cpus: '0.1'
-          memory: '64M'
-    ports:
-      - "80:80"
-      # - "443:443"  # HTTPS 启用时取消注释
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./nginx/html:/usr/share/nginx/html:ro
-      - nginx_logs:/var/log/nginx
-    depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - n8n_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/nginx-health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    logging:
-      driver: "local"
-      options:
-        max-size: "100m"
-        max-file: "3"
-
-# ============================================
-# 网络配置（使用 n8n 的网络）
-# ============================================
 networks:
   n8n_network:
     external: true
     name: n8n_network
 
-# ============================================
-# 数据卷配置
-# ============================================
 volumes:
   backend_data:
     name: autogeo_backend_data
@@ -119,5 +68,3 @@ volumes:
     name: autogeo_backend_logs
   playwright_cache:
     name: autogeo_playwright_cache
-  nginx_logs:
-    name: autogeo_nginx_logs

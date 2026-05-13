@@ -4,20 +4,23 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    新部署架构（5容器）                    │
+│                    新部署架构（4容器）                    │
 ├─────────────────┬─────────────────┬─────────────────────┤
 │   n8n 服务      │   后端服务      │     前端（桌面）     │
-│   (3容器)       │   (2容器)       │                     │
+│   (3容器)       │   (1容器)       │                     │
 ├─────────────────┼─────────────────┼─────────────────────┤
-│  PostgreSQL ←───┼─── _backend     │    Electron + Vue3  │
-│  Redis      ←───┼───  (共享)      │                     │
-│  n8n            │   Nginx         │                     │
+│  PostgreSQL ←───┼─── backend      │    Electron + Vue3  │
+│  Redis      ←───┼─── (API:8001)   │                     │
+│  n8n            │                 │                     │
 └─────────────────┴─────────────────┴─────────────────────┘
+         │                              ▲
+         └───── 服务器 Nginx:80 ─────────┘
 ```
 
 ### 核心变更
 - **后端不再自带数据库**，复用 n8n 的 PostgreSQL
-- **总容器数从 7 → 5**，节省资源
+- **后端不再带 Nginx**，使用服务器 Nginx 做反向代理
+- **总容器数从 7 → 4**，节省资源
 
 ---
 
@@ -27,14 +30,6 @@
 
 ```bash
 cd n8n/deploy
-
-# 第一次运行会自动创建 .env 文件
-./deploy.sh
-
-# 按提示编辑配置
-nano .env
-
-# 再次运行部署
 ./deploy.sh
 ```
 
@@ -42,17 +37,46 @@ nano .env
 
 ---
 
-### 第二步：部署后端
+### 第二步：配置服务器 Nginx
+
+后端只提供 API 服务（8001 端口），需要在服务器 Nginx 添加反向代理：
+
+```nginx
+# /etc/nginx/conf.d/autogeo.conf
+server {
+    listen 80;
+    server_name your-domain-or-ip;
+
+    location /api/ {
+        proxy_pass http://localhost:8001/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /docs {
+        proxy_pass http://localhost:8001/docs;
+    }
+}
+```
+
+然后重载 Nginx：
+```bash
+sudo nginx -s reload
+```
+
+---
+
+### 第三步：部署后端
 
 ```bash
 cd deploy
 
-# 1. 复制环境变量模板
+# 1. 配置环境变量
 cp .env.backend.example .env.backend
 nano .env.backend
 ```
 
-**关键配置（只需改4项）：**
+**关键配置（只改4项）：**
 
 ```bash
 # n8n数据库密码（与 n8n/.env 中的一致）
@@ -82,16 +106,15 @@ DEEPSEEK_API_KEY=sk-xxx
 
 ```
 deploy/
-├── docker-compose.backend.yml    # 后端编排（2服务）
+├── docker-compose.backend.yml    # 后端编排（1服务：backend）
 ├── deploy.sh                     # 一键部署脚本
 ├── .env.backend.example          # 环境变量模板
 └── README.md                     # 本文档
 
 n8n/deploy/
-├── docker-compose.yml            # n8n编排（3服务）
+├── docker-compose.yml            # n8n编排（3服务：postgres+redis+n8n）
 ├── deploy.sh                     # 一键部署脚本
-├── .env                          # 自动生成
-└── backup/                       # 数据备份
+└── .env                          # 自动生成
 ```
 
 ---
@@ -110,39 +133,6 @@ n8n/deploy/
 ## 注意事项
 
 1. **必须先部署 n8n**，后端依赖 n8n 的数据库
-2. 后端会自动在 n8n_postgres 中创建 `autogeo` 数据库
-3. 确保防火墙开放 5678（n8n）和 80（后端）端口
-
----
-
-## 故障排查
-
-### 后端无法连接数据库
-```bash
-# 检查 n8n_postgres 是否运行
-docker ps | grep n8n_postgres
-
-# 检查密码是否正确
-docker exec n8n_postgres psql -U n8n -c "\l"
-```
-
-### 端口冲突
-```bash
-# 查看端口占用
-netstat -tlnp | grep -E '80|5678'
-```
-
----
-
-## 可选：部署 RAGFlow
-
-如需 RAG 功能，单独部署（不依赖 n8n）：
-
-```bash
-cd deploy
-cp .env.ragflow.example .env.ragflow
-# 配置后执行
-docker-compose -f docker-compose.ragflow.yml up -d
-```
-
-详见 [RAGFLOW-DEPLOY.md](./RAGFLOW-DEPLOY.md)
+2. **需要配置服务器 Nginx** 反向代理到后端 8001 端口
+3. 后端会自动在 n8n_postgres 中创建 `autogeo` 数据库
+4. 确保防火墙开放 5678（n8n）和 80（http）端口
