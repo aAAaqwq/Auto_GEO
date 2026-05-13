@@ -3,14 +3,12 @@
 # 适用: 阿里云ECS独立部署
 # 注意: RAGFlow资源需求较高，建议单独服务器部署
 
-version: '3.8'
-
 services:
   # ============================================
   # RAGFlow 主服务
   # ============================================
   ragflow:
-    image: registry.cn-hangzhou.aliyuncs.com/ragflow/ragflow:latest
+    image: infgrad/ragflow:latest
     container_name: ragflow_server
     restart: unless-stopped
     environment:
@@ -76,7 +74,7 @@ services:
   # MySQL - RAGFlow元数据存储
   # ============================================
   mysql:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/mysql:8.0
+    image: mysql:8.0
     container_name: ragflow_mysql
     restart: unless-stopped
     environment:
@@ -104,7 +102,7 @@ services:
   # Redis - 缓存和消息队列
   # ============================================
   redis:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/redis:7-alpine
+    image: redis:7-alpine
     container_name: ragflow_redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
@@ -127,7 +125,7 @@ services:
   # MinIO - 文档对象存储
   # ============================================
   minio:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/minio:latest
+    image: minio/minio:latest
     container_name: ragflow_minio
     restart: unless-stopped
     environment:
@@ -156,7 +154,7 @@ services:
   # Elasticsearch - 向量检索
   # ============================================
   es01:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/elasticsearch:8.11.3
+    image: elasticsearch:8.11.3
     container_name: ragflow_es01
     restart: unless-stopped
     environment:

@@ -2,14 +2,12 @@
 # 版本: 1.0.0
 # 适用: 阿里云ECS独立部署
 
-version: '3.8'
-
 services:
   # ============================================
   # PostgreSQL - n8n数据持久化
   # ============================================
   postgres:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/postgres:15-alpine
+    image: postgres:15-alpine
     container_name: n8n_postgres
     restart: unless-stopped
     environment:
@@ -37,7 +35,7 @@ services:
   # Redis - 执行队列和缓存
   # ============================================
   redis:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/redis:7-alpine
+    image: redis:7-alpine
     container_name: n8n_redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
@@ -60,9 +58,12 @@ services:
   # n8n 主服务
   # ============================================
   n8n:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/n8n:latest
+    image: n8nio/n8n:latest
     container_name: n8n_main
     restart: unless-stopped
+    env_file:
+      - path: .env.n8n
+        required: false
     environment:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
@@ -116,7 +117,7 @@ services:
   # n8n Webhook 工作节点（可选，高可用时使用）
   # ============================================
   n8n_webhook:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/n8n:latest
+    image: n8nio/n8n:latest
     container_name: n8n_webhook
     restart: unless-stopped
     command: webhook
@@ -155,7 +156,7 @@ services:
   # n8n Worker 工作节点（可选，高可用时使用）
   # ============================================
   n8n_worker:
-    image: registry.cn-hangzhou.aliyuncs.com/acs-sample/n8n:latest
+    image: n8nio/n8n:latest
     container_name: n8n_worker
     restart: unless-stopped
     command: worker --concurrency=5
