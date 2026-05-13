@@ -1017,7 +1017,8 @@ const refreshAllData = async () => {
 
 // WebSocket (保持连接)
 const initWebSocket = () => {
-  socket = new WebSocket(`ws://127.0.0.1:8001/ws?client_id=mon_${Math.random().toString(36).slice(-5)}`)
+  const wsBaseUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8001/ws'
+  socket = new WebSocket(`${wsBaseUrl}?client_id=mon_${Math.random().toString(36).slice(-5)}`)
   socket.onopen = () => { wsStatus.value = 'connected' }
   socket.onmessage = (event) => {
     try {

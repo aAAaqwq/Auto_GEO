@@ -430,7 +430,8 @@ const handleCheckAll = async () => {
 }
 
 const setupWsListener = () => {
-  ws = new WebSocket('ws://127.0.0.1:8001/ws')
+  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8001/ws'
+  ws = new WebSocket(wsUrl)
 
   ws.onmessage = (event) => {
     try {

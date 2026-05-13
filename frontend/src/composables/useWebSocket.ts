@@ -18,7 +18,7 @@ export function useWebSocket(url?: string) {
 
   // 连接
   const connect = (wsUrl?: string) => {
-    const targetUrl = wsUrl || url || 'ws://localhost:8001/ws'  // 改的：避开8000端口占用
+    const targetUrl = wsUrl || url || import.meta.env.VITE_WS_URL || 'ws://localhost:8001/ws'
     wsService.connect(targetUrl)
   }
 
