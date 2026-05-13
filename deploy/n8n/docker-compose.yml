@@ -26,7 +26,7 @@ services:
       - n8n_network
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:stable
     container_name: n8n
     restart: unless-stopped
     ports:
