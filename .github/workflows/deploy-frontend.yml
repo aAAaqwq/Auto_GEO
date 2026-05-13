@@ -116,7 +116,7 @@ jobs:
 
             PROJECT_DIR="$HOME/Auto_GEO"
 
-            # 如果目录不存在，克隆项目
+            # 如果目录不存在，克隆项目（仅用于获取 nginx 配置）
             if [ ! -d "$PROJECT_DIR/.git" ]; then
               echo "📦 项目不存在，克隆仓库..."
               mkdir -p "$(dirname "$PROJECT_DIR")"
@@ -129,12 +129,6 @@ jobs:
             fi
 
             cd "$PROJECT_DIR"
-
-            # 确保 nginx html 目录存在
-            sudo mkdir -p /var/www/html
-
-            # 复制前端文件到 nginx 目录
-            sudo cp -rf frontend/out/renderer/* /var/www/html/
 
             # 复制并部署 nginx 配置
             if [ -f "nginx/server-frontend.conf" ]; then
