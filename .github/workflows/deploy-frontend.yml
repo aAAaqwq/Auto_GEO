@@ -163,7 +163,19 @@ jobs:
             # 设置nginx目录
             NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 
-            # 确保目录存在
+            # 确保nginx配置目录存在
+            mkdir -p "$NGINX_DIR/conf.d"
+            mkdir -p "$NGINX_DIR/ssl"
+
+            # 复制nginx配置文件（从仓库同步）
+            if [ -f "$PROJECT_DIR/nginx/nginx.conf" ]; then
+              cp -f "$PROJECT_DIR/nginx/nginx.conf" "$NGINX_DIR/nginx.conf"
+            fi
+            if [ -d "$PROJECT_DIR/nginx/conf.d" ]; then
+              cp -f "$PROJECT_DIR/nginx/conf.d/*.conf" "$NGINX_DIR/conf.d/" 2>/dev/null || true
+            fi
+
+            # 确保html目录存在
             mkdir -p "$NGINX_DIR/html"
 
             cd "$PROJECT_DIR/deploy"

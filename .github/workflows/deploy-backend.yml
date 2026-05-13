@@ -180,6 +180,15 @@ jobs:
             # 确保backups目录存在
             mkdir -p backups
 
+            # 确保nginx配置目录存在
+            mkdir -p nginx/conf.d nginx/ssl nginx/html
+            if [ -f "$PROJECT_DIR/nginx/nginx.conf" ]; then
+              cp -f "$PROJECT_DIR/nginx/nginx.conf" nginx/nginx.conf
+            fi
+            if [ -d "$PROJECT_DIR/nginx/conf.d" ]; then
+              cp -f "$PROJECT_DIR/nginx/conf.d/*.conf" nginx/conf.d/ 2>/dev/null || true
+            fi
+
             # 登录阿里云ACR
             echo "🔐 登录阿里云ACR..."
             docker login ${{ env.ALIYUN_REGISTRY }} \

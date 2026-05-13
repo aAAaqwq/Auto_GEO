@@ -1,48 +1,20 @@
 # n8n 独立部署配置
-# 版本: 1.0.0
-# 适用: 阿里云ECS独立部署
+# 版本: 1.0.1
+# 适用: 阿里云ECS独立部署（使用auto_geo_backend的PostgreSQL）
 
 services:
   # ============================================
-  # PostgreSQL - n8n数据持久化
-  # ============================================
-  postgres:
-    image: postgres:15-alpine
-    container_name: n8n_postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=n8n
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=n8n
-      - PGDATA=/var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - n8n_network
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U n8n -d n8n']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
-
-  # ============================================
-  # Redis - 执行队列和缓存
+  # Redis - 执行队列和缓存（n8n专用）
   # ============================================
   redis:
     image: redis:7-alpine
     container_name: n8n_redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-n8n_redis_password}
     volumes:
       - redis_data:/data
     networks:
-      - n8n_network
+      - autogeo_network
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -61,27 +33,25 @@ services:
     image: n8nio/n8n:latest
     container_name: n8n_main
     restart: unless-stopped
-    env_file:
-      - path: .env.n8n
-        required: false
     environment:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
-      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-http://localhost:5678}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/webhook}
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-n8n_password}
+      # 使用auto_geo_backend的PostgreSQL，数据库名为n8n
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_HOST=autogeo_postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n
-      - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_USER=${DB_USER:-autogeo}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
-      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD:-n8n_redis_password}
       - EXECUTIONS_MODE=${EXECUTIONS_MODE:-regular}
       - EXECUTIONS_PROCESS=${EXECUTIONS_PROCESS:-main}
       - EXECUTIONS_DATA_PRUNE=true
@@ -101,12 +71,10 @@ services:
       - n8n_data:/home/node/.n8n
       - ./backup:/backup
     networks:
-      - n8n_network
+      - autogeo_network
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
-        condition: service_healthy
+        condition: service_started
     logging:
       driver: "json-file"
       options:
@@ -125,24 +93,23 @@ services:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/webhook}
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_HOST=autogeo_postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n
-      - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_USER=${DB_USER:-autogeo}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
-      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD:-n8n_redis_password}
       - GENERIC_TIMEZONE=Asia/Shanghai
       - TZ=Asia/Shanghai
     ports:
       - "5679:5678"
     networks:
-      - n8n_network
+      - autogeo_network
     depends_on:
-      - postgres
       - redis
     profiles:
       - ha
@@ -162,21 +129,20 @@ services:
     command: worker --concurrency=5
     environment:
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_HOST=autogeo_postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n
-      - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_USER=${DB_USER:-autogeo}
+      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
-      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD:-n8n_redis_password}
       - GENERIC_TIMEZONE=Asia/Shanghai
       - TZ=Asia/Shanghai
       - EXECUTIONS_MODE=queue
     networks:
-      - n8n_network
+      - autogeo_network
     depends_on:
-      - postgres
       - redis
     profiles:
       - ha
@@ -187,19 +153,17 @@ services:
         max-file: "3"
 
 # ============================================
-# 网络配置
+# 网络配置（与auto_geo_backend共享）
 # ============================================
 networks:
-  n8n_network:
-    driver: bridge
-    name: n8n_network
+  autogeo_network:
+    external: true
+    name: autogeo_network
 
 # ============================================
 # 数据卷配置
 # ============================================
 volumes:
-  postgres_data:
-    name: n8n_postgres_data
   redis_data:
     name: n8n_redis_data
   n8n_data:
