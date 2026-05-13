@@ -343,6 +343,22 @@ export const autoPublishApi = {
   retry: (taskId: number) => post(`/auto-publish/tasks/${taskId}/retry`)
 }
 
+// ==================== 10. 健康检查 API ====================
+export interface HealthStatus {
+  status: 'ok' | 'degraded' | 'error'
+  timestamp: string
+  services: {
+    database: { status: 'connected' | 'error' | 'not_configured' | 'unknown'; message?: string }
+    ragflow: { status: 'connected' | 'error' | 'not_configured' | 'unknown'; message?: string; code?: number }
+    n8n: { status: 'connected' | 'error' | 'not_configured' | 'unknown'; message?: string; code?: number }
+  }
+}
+
+export const systemApi = {
+  // 获取健康状态
+  getHealth: () => get<HealthStatus>('/health')
+}
+
 // 导出统一的api对象
 export const api = {
   account: accountApi,
@@ -353,7 +369,8 @@ export const api = {
   reports: reportsApi,
   scheduler: schedulerApi,
   publish: publishApi,
-  autoPublish: autoPublishApi
+  autoPublish: autoPublishApi,
+  system: systemApi
 }
 
 // 导出默认实例

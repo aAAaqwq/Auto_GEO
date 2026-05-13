@@ -3,6 +3,81 @@
     <h2>设置</h2>
     <div class="settings-sections">
       <div class="setting-section">
+        <h3>服务连接状态</h3>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span>健康检查</span>
+            <span class="setting-desc">测试后端与各服务的连接状态</span>
+          </div>
+          <el-button type="primary" @click="refreshHealth" :loading="healthLoading">
+            {{ healthLoading ? '检测中...' : '刷新状态' }}
+          </el-button>
+        </div>
+
+        <template v-if="healthStatus">
+          <div class="setting-item">
+            <div class="setting-info">
+              <span>整体状态</span>
+              <span class="setting-desc">后端服务运行状态</span>
+            </div>
+            <div class="setting-value">
+              <span class="status-badge" :class="{ active: healthStatus.status === 'ok', error: healthStatus.status === 'degraded' || healthStatus.status === 'error' }">
+                {{ healthStatus.status === 'ok' ? '正常' : healthStatus.status === 'degraded' ? '部分异常' : '异常' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span>数据库</span>
+              <span class="setting-desc">PostgreSQL 连接状态</span>
+            </div>
+            <div class="setting-value">
+              <span class="status-badge" :class="getServiceStatusClass(healthStatus.services.database.status)">
+                {{ getServiceStatusText(healthStatus.services.database.status) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span>RAGFlow</span>
+              <span class="setting-desc">知识库检索服务</span>
+            </div>
+            <div class="setting-value">
+              <span class="status-badge" :class="getServiceStatusClass(healthStatus.services.ragflow.status)">
+                {{ getServiceStatusText(healthStatus.services.ragflow.status) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span>n8n 工作流</span>
+              <span class="setting-desc">自动化工作流引擎</span>
+            </div>
+            <div class="setting-value">
+              <span class="status-badge" :class="getServiceStatusClass(healthStatus.services.n8n.status)">
+                {{ getServiceStatusText(healthStatus.services.n8n.status) }}
+              </span>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span>后端服务</span>
+              <span class="setting-desc">点击刷新获取服务状态</span>
+            </div>
+            <div class="setting-value">
+              <span class="status-badge">未检测</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="setting-section">
         <h3>定时任务</h3>
         <div class="setting-item">
           <div class="setting-info">
@@ -134,6 +209,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { systemApi, type HealthStatus } from '@/services/api'
 
 const router = useRouter()
 const darkTheme = ref(true)
@@ -141,11 +217,54 @@ const minimizeToTray = ref(false)
 const publishNotification = ref(true)
 const schedulerRunning = ref(true)
 
+// 健康检查状态
+const healthStatus = ref<HealthStatus | null>(null)
+const healthLoading = ref(false)
+
 // 浏览器桥接服务状态
 const bridgeStatus = ref<'stopped' | 'starting' | 'running' | 'error'>('stopped')
 const bridgeConfig = ref<any>(null)
 const bridgeRestarting = ref(false)
 let statusCheckInterval: number | null = null
+
+// 服务状态文本映射
+const getServiceStatusText = (status: string) => {
+  const map: Record<string, string> = {
+    connected: '已连接',
+    error: '连接失败',
+    not_configured: '未配置',
+    unknown: '未知'
+  }
+  return map[status] || status
+}
+
+// 服务状态样式类
+const getServiceStatusClass = (status: string) => {
+  return {
+    active: status === 'connected',
+    error: status === 'error',
+    warning: status === 'not_configured'
+  }
+}
+
+// 获取健康状态
+const fetchHealthStatus = async () => {
+  healthLoading.value = true
+  try {
+    const status = await systemApi.getHealth()
+    healthStatus.value = status
+  } catch (error: any) {
+    console.error('[Settings] 获取健康状态失败:', error)
+    healthStatus.value = null
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+// 刷新健康状态
+const refreshHealth = () => {
+  fetchHealthStatus()
+}
 
 // 状态文本映射
 const bridgeStatusText = computed(() => {
@@ -226,6 +345,7 @@ const goToKnowledge = () => {
 onMounted(async () => {
   await fetchBridgeStatus()
   await fetchBridgeConfig()
+  await fetchHealthStatus()
 
   // 定期检查状态（每5秒）
   if (window.electronAPI) {
@@ -319,6 +439,11 @@ onUnmounted(() => {
         &.error {
           background: rgba(239, 68, 68, 0.1);
           color: #ef4444;
+        }
+
+        &.warning {
+          background: rgba(251, 191, 36, 0.1);
+          color: #fbbf24;
         }
 
         &.starting {

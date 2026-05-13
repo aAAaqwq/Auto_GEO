@@ -26,7 +26,7 @@ services:
       - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
       - API_HOST=0.0.0.0
       - API_PORT=8001
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://8.138.59.152,http://8.163.39.114}
       - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-}
       - N8N_API_KEY=${N8N_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}

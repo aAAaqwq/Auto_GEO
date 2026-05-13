@@ -91,13 +91,15 @@ jobs:
             git fetch origin
             git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
-            # 检查环境变量文件
-            if [ ! -f "$DEPLOY_DIR/.env.backend" ]; then
-              echo "⚠️ 警告: .env.backend 不存在，使用示例配置"
-              cp "$DEPLOY_DIR/.env.simple.example" "$DEPLOY_DIR/.env.backend"
-              echo "❌ 请手动修改 $DEPLOY_DIR/.env.backend 中的配置"
-              exit 1
-            fi
+            # 更新 CORS 配置（添加当前服务器IP）
+            echo "🔧 更新 CORS 配置..."
+            SERVER_IP="${{ secrets.SERVER_HOST }}"
+            BACKUP_FILE="$DEPLOY_DIR/.env.backend.bak.$(date +%Y%m%d%H%M%S)"
+            cp "$DEPLOY_DIR/.env.backend" "$BACKUP_FILE"
+            # 移除旧IP，添加新IP
+            sed -i "s|http://[0-9.]*|PLACEHOLDER|g" "$DEPLOY_DIR/.env.backend"
+            sed -i "s|PLACEHOLDER|${SERVER_IP},http://localhost:5173,http://127.0.0.1:5173,app://.,file://,http://localhost:3000|" "$DEPLOY_DIR/.env.backend"
+            echo "✅ CORS 配置已更新"
 
             cd "$DEPLOY_DIR"
 

@@ -218,7 +218,84 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    """增强健康检查端点，返回各服务连接状态"""
+    import httpx
+
+    health_status = {
+        "status": "ok",
+        "timestamp": None,
+        "services": {
+            "database": {"status": "unknown"},
+            "ragflow": {"status": "unknown"},
+            "n8n": {"status": "unknown"},
+        }
+    }
+
+    # 导入时间模块
+    from datetime import datetime
+    health_status["timestamp"] = datetime.now().isoformat()
+
+    # 1. 数据库连接检测
+    try:
+        from backend.database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+        health_status["services"]["database"] = {"status": "connected"}
+    except Exception as e:
+        health_status["services"]["database"] = {
+            "status": "error",
+            "message": str(e)[:100]
+        }
+        health_status["status"] = "degraded"
+
+    # 2. RAGFlow 连接检测
+    try:
+        from backend.config import RAGFLOW_BASE_URL, RAGFLOW_API_KEY
+        if RAGFLOW_API_KEY and RAGFLOW_BASE_URL:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"{RAGFLOW_BASE_URL}/api/v1/user",
+                    headers={"Authorization": f"Bearer {RAGFLOW_API_KEY}"}
+                )
+                if response.status_code == 200:
+                    health_status["services"]["ragflow"] = {"status": "connected"}
+                else:
+                    health_status["services"]["ragflow"] = {
+                        "status": "error",
+                        "code": response.status_code
+                    }
+        else:
+            health_status["services"]["ragflow"] = {"status": "not_configured"}
+    except Exception as e:
+        health_status["services"]["ragflow"] = {
+            "status": "error",
+            "message": str(e)[:100]
+        }
+        health_status["status"] = "degraded"
+
+    # 3. n8n 连接检测
+    try:
+        from backend.config import N8N_WEBHOOK_URL
+        if N8N_WEBHOOK_URL:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # n8n 不需要认证也能检测服务是否可达
+                n8n_health_url = N8N_WEBHOOK_URL.replace("/webhook", "/healthz")
+                response = await client.get(n8n_health_url)
+                if response.status_code == 200:
+                    health_status["services"]["n8n"] = {"status": "connected"}
+                else:
+                    health_status["services"]["n8n"] = {"status": "error", "code": response.status_code}
+        else:
+            health_status["services"]["n8n"] = {"status": "not_configured"}
+    except Exception as e:
+        health_status["services"]["n8n"] = {
+            "status": "error",
+            "message": str(e)[:100]
+        }
+        health_status["status"] = "degraded"
+
+    return health_status
 
 
 @app.get("/api/platforms")
