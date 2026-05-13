@@ -106,7 +106,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
-          dockerfile: ./frontend/Dockerfile
+          file: ./frontend/Dockerfile
           push: true
           tags: |
             ${{ env.ALIYUN_IMAGE }}:latest
@@ -114,7 +114,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/aAAaqwq/Auto_GEO
             org.opencontainers.image.description=AutoGeo Frontend
-          args: |
+          build-args: |
             VITE_API_BASE_URL=http://${{ secrets.SERVER_HOST }}/api
             VITE_WS_URL=ws://${{ secrets.SERVER_HOST }}/ws
             VITE_STATIC_URL=http://${{ secrets.SERVER_HOST }}/static
