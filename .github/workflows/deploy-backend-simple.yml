@@ -72,12 +72,17 @@ jobs:
             PROJECT_DIR="$HOME/Auto_GEO"
             DEPLOY_DIR="$PROJECT_DIR/deploy"
 
-            # 如果目录不存在，克隆项目（使用SSH方式）
-            if [ ! -d "$PROJECT_DIR" ]; then
+            # 确保目录存在
+            mkdir -p "$(dirname "$PROJECT_DIR")"
+
+            # 如果目录不存在，克隆项目
+            if [ ! -d "$PROJECT_DIR/.git" ]; then
               echo "📦 项目不存在，克隆仓库..."
-              git clone git@github.com:Architecture-Matrix/Auto_GEO.git "$PROJECT_DIR" || {
-                echo "⚠️ SSH克隆失败，尝试HTTPS..."
-                git clone https://github.com/Architecture-Matrix/Auto_GEO.git "$PROJECT_DIR"
+              mkdir -p ~/.ssh
+              ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+              git clone git@github.com:aAAaqwq/Auto_GEO.git "$PROJECT_DIR" || {
+                echo "⚠️ SSH克隆失败，使用HTTPS..."
+                git clone https://github.com/aAAaqwq/Auto_GEO.git "$PROJECT_DIR"
               }
             fi
 

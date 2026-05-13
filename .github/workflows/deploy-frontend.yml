@@ -116,6 +116,24 @@ jobs:
             PROJECT_DIR="~/Auto_GEO"
             NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 
+            # 确保项目目录存在（如果不存在则拉取）
+            if [ ! -d "$PROJECT_DIR/.git" ]; then
+              echo "📦 项目不存在，克隆仓库..."
+              mkdir -p "$(dirname "$PROJECT_DIR")"
+              mkdir -p ~/.ssh
+              ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+              git clone git@github.com:aAAaqwq/Auto_GEO.git "$PROJECT_DIR" || {
+                echo "⚠️ SSH克隆失败，使用HTTPS..."
+                git clone https://github.com/aAAaqwq/Auto_GEO.git "$PROJECT_DIR"
+              }
+            fi
+
+            # 拉取最新代码
+            echo "📥 拉取最新代码..."
+            cd "$PROJECT_DIR"
+            git fetch origin
+            git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+
             # 确保目录存在
             mkdir -p "$NGINX_DIR/html"
 
