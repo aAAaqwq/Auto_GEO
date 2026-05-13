@@ -20,7 +20,7 @@ on:
 env:
   PYTHON_VERSION: '3.12'
   ALIYUN_REGISTRY: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com
-  ALIYUN_IMAGE: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend
+  ALIYUN_IMAGE: crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo
 
 jobs:
   # ============================================
@@ -109,7 +109,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ALIYUN_IMAGE }}
+          images: ${{ env.ALIYUN_IMAGE }}/backend
           tags: |
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -175,23 +175,40 @@ jobs:
             git fetch origin
             git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
-            # 检查环境变量文件
-            if [ ! -f "$DEPLOY_DIR/.env.backend" ]; then
-              echo "⚠️ 警告: .env.backend 不存在，使用示例配置"
-              cp "$DEPLOY_DIR/.env.simple.example" "$DEPLOY_DIR/.env.backend"
-              echo "❌ 请手动修改 $DEPLOY_DIR/.env.backend 中的配置"
-              exit 1
-            fi
-
             cd "$DEPLOY_DIR"
+
+            # 确保backups目录存在
+            mkdir -p backups
 
             # 登录阿里云ACR
             echo "🔐 登录阿里云ACR..."
             docker login ${{ env.ALIYUN_REGISTRY }} \
               -u "${{ secrets.ALIYUN_ACR_USERNAME }}" \
               -p "${{ secrets.ALIYUN_ACR_PASSWORD }}" 2>/dev/null || {
-                echo "⚠️ ACR 登录失败，尝试使用本地镜像..."
-              }
+              echo "⚠️ ACR 登录失败，尝试使用本地镜像..."
+            }
+
+            # 从.env.backend读取环境变量（如果存在）
+            if [ -f "$DEPLOY_DIR/.env.backend" ]; then
+              echo "📝 加载.env.backend中的环境变量..."
+              set -a
+              source "$DEPLOY_DIR/.env.backend"
+              set +a
+            else
+              echo "⚠️ .env.backend不存在，使用默认值..."
+            fi
+
+            # 设置默认的镜像地址
+            export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}/backend:latest"
+            export DB_USER="${DB_USER:-autogeo}"
+            export DB_NAME="${DB_NAME:-autogeo}"
+            export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+            export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+
+            echo "📦 环境变量已设置:"
+            echo "   - BACKEND_IMAGE: $BACKEND_IMAGE"
+            echo "   - DB_USER: $DB_USER"
+            echo "   - DB_PASSWORD: [已设置]"
 
             # 拉取最新镜像
             echo "📦 拉取最新镜像..."
@@ -205,7 +222,7 @@ jobs:
 
             # 等待服务启动
             echo "⏳ 等待服务启动..."
-            sleep 10
+            sleep 15
 
             # 健康检查
             echo "🏥 健康检查..."
@@ -231,7 +248,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| 镜像 | ${{ env.ALIYUN_IMAGE }}:latest |" >> $GITHUB_STEP_SUMMARY
+          echo "| 镜像 | ${{ env.ALIYUN_IMAGE }}/backend:latest |" >> $GITHUB_STEP_SUMMARY
           echo "| 服务器 | ${{ secrets.SERVER_HOST }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 部署目录 | ~/Auto_GEO/deploy |" >> $GITHUB_STEP_SUMMARY
           echo "| API地址 | http://${{ secrets.SERVER_HOST }}/api |" >> $GITHUB_STEP_SUMMARY

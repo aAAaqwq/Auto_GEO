@@ -85,7 +85,7 @@ services:
   # FastAPI 后端服务
   # ============================================
   backend:
-    image: ${BACKEND_IMAGE:-crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend:latest}
+    image: ${BACKEND_IMAGE:-crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo/backend:latest}
     container_name: autogeo_backend
     deploy:
       resources:
