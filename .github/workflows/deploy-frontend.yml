@@ -113,10 +113,10 @@ jobs:
             set -e
             echo "🚀 [Frontend] 开始部署..."
 
-            PROJECT_DIR="~/Auto_GEO"
+            PROJECT_DIR="$HOME/Auto_GEO"
             NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 
-            # 确保项目目录存在（如果不存在则拉取）
+            # 如果目录不存在，克隆项目
             if [ ! -d "$PROJECT_DIR/.git" ]; then
               echo "📦 项目不存在，克隆仓库..."
               mkdir -p "$(dirname "$PROJECT_DIR")"
@@ -133,6 +133,9 @@ jobs:
             cd "$PROJECT_DIR"
             git fetch origin
             git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+
+            # 设置nginx目录
+            NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 
             # 确保目录存在
             mkdir -p "$NGINX_DIR/html"

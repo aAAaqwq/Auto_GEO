@@ -149,7 +149,7 @@ jobs:
             echo "🚀 [Backend] 开始部署..."
 
             # 项目目录
-            PROJECT_DIR="~/Auto_GEO"
+            PROJECT_DIR="$HOME/Auto_GEO"
             DEPLOY_DIR="$PROJECT_DIR/deploy"
 
             # 确保目录存在（如果不存在则创建父目录）
