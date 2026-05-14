@@ -219,6 +219,13 @@ jobs:
 
             # 从.env.backend读取环境变量（如果存在）
             # 注意：.env文件不会被读取，所有配置应放在.env.backend中
+
+            # 确保 .env.backend 存在
+            if [ ! -f "$DEPLOY_DIR/.env.backend" ]; then
+              echo "📝 创建 .env.backend..."
+              cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env.backend" 2>/dev/null || true
+            fi
+
             if [ -f "$DEPLOY_DIR/.env.backend" ]; then
               echo "📝 加载.env.backend中的环境变量..."
               set -a
@@ -228,6 +235,21 @@ jobs:
               echo "⚠️ .env.backend不存在，使用默认值..."
             fi
 
+            # 确保 JWT_SECRET_KEY 存在（从 GitHub Secrets）
+            if ! grep -q "^JWT_SECRET_KEY=" "$DEPLOY_DIR/.env.backend" 2>/dev/null; then
+              echo "🔑 添加 JWT_SECRET_KEY 到 .env.backend"
+              echo "" >> "$DEPLOY_DIR/.env.backend"
+              echo "# ==================== JWT认证配置 ====================" >> "$DEPLOY_DIR/.env.backend"
+              echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> "$DEPLOY_DIR/.env.backend"
+            fi
+
+            # 重新加载（确保刚写入的值被读取）
+            set -a
+            source "$DEPLOY_DIR/.env.backend"
+            set +a
+
+            echo "📦 JWT_SECRET_KEY: ${JWT_SECRET_KEY:+已设置}"
+
             # 设置默认的镜像地址
             export BACKEND_IMAGE="${{ env.ALIYUN_IMAGE }}:latest"
             export DB_USER="${DB_USER:-autogeo}"
@@ -235,6 +257,7 @@ jobs:
             export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
             export LOG_LEVEL="${LOG_LEVEL:-INFO}"
             export DATABASE_URL="postgresql://n8n:opencaio%40321@n8n_postgres:5432/autogeo"
+            export JWT_SECRET_KEY="${JWT_SECRET_KEY}"
 
             echo "📦 环境变量已设置:"
             echo "   - BACKEND_IMAGE: $BACKEND_IMAGE"
