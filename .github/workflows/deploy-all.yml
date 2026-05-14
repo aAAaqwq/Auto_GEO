@@ -51,6 +51,8 @@ jobs:
           tags: |
             crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend:latest
             crpi-lwz264sedmauvivo.cn-guangzhou.personal.cr.aliyuncs.com/opencaio/auto_geo_backend:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
       - name: Deploy backend to server
         uses: appleboy/ssh-action@v1.0.3
@@ -85,8 +87,8 @@ jobs:
               -u "${{ secrets.ALIYUN_ACR_USERNAME }}" \
               -p "${{ secrets.ALIYUN_ACR_PASSWORD }}" 2>/dev/null || true
 
-            docker-compose -f backend/docker-compose.yml pull backend || true
-            docker-compose -f backend/docker-compose.yml up -d
+            docker-compose -f deploy/backend/docker-compose.yml pull backend || true
+            docker-compose -f deploy/backend/docker-compose.yml up -d
 
             sleep 10
 
@@ -94,7 +96,7 @@ jobs:
               echo "✅ [Backend] 部署成功"
             else
               echo "❌ [Backend] 健康检查失败"
-              docker-compose -f backend/docker-compose.yml logs --tail=30 backend
+              docker-compose -f deploy/backend/docker-compose.yml logs --tail=30 backend
               exit 1
             fi
 
