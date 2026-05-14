@@ -228,13 +228,13 @@ jobs:
 
             # 拉取最新镜像
             echo "📦 拉取最新镜像..."
-            docker-compose -f docker-compose.backend.yml pull backend || {
+            docker-compose -f backend/docker-compose.yml pull backend || {
               echo "⚠️ 拉取镜像失败，使用本地镜像"
             }
 
             # 重启服务
             echo "🔄 重启后端服务..."
-            docker-compose -f docker-compose.backend.yml up -d
+            docker-compose -f backend/docker-compose.yml up -d
 
             # 等待服务启动
             echo "⏳ 等待服务启动..."
@@ -246,7 +246,7 @@ jobs:
               echo "✅ [Backend] 部署成功！服务运行正常"
             else
               echo "⚠️ [Backend] 健康检查失败，查看日志:"
-              docker-compose -f docker-compose.backend.yml logs --tail=50 backend
+              docker-compose -f backend/docker-compose.yml logs --tail=50 backend
               exit 1
             fi
 
