@@ -1093,3 +1093,726 @@ async def extract_info_from_text(
     except Exception as e:
         logger.error(f"从文本提取信息失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== RAGFlow 直接管理 API ====================
+
+
+class RAGFlowDatasetCreate(BaseModel):
+    """创建 RAGFlow 知识库请求"""
+    name: str
+    description: Optional[str] = None
+
+
+class RAGFlowDatasetUpdate(BaseModel):
+    """更新 RAGFlow 知识库请求"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.get("/ragflow/status", response_model=ApiResponse)
+async def get_ragflow_status():
+    """
+    获取 RAGFlow 服务状态
+
+    Returns:
+        RAGFlow 连接状态和配置信息
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            return ApiResponse(
+                success=False,
+                data={
+                    "connected": False,
+                    "configured": False,
+                    "message": "RAGFlow 未配置，请设置 RAGFLOW_API_KEY 和 RAGFLOW_BASE_URL"
+                },
+                message="RAGFlow 未配置"
+            )
+
+        # 测试连接
+        result = ragflow_client.list_datasets()
+
+        if result.get("code") == 0:
+            datasets = result.get("data", [])
+            return ApiResponse(
+                success=True,
+                data={
+                    "connected": True,
+                    "configured": True,
+                    "base_url": ragflow_client.base_url,
+                    "dataset_count": len(datasets),
+                    "datasets": datasets
+                },
+                message=f"已连接到 RAGFlow，当前有 {len(datasets)} 个知识库"
+            )
+        else:
+            return ApiResponse(
+                success=False,
+                data={
+                    "connected": False,
+                    "configured": True,
+                    "message": result.get("message", "连接失败")
+                },
+                message="RAGFlow 连接失败"
+            )
+
+    except Exception as e:
+        logger.error(f"检查 RAGFlow 状态失败: {e}")
+        return ApiResponse(
+            success=False,
+            data={
+                "connected": False,
+                "error": str(e)
+            },
+            message=f"检查状态失败: {str(e)}"
+        )
+
+
+@router.get("/ragflow/datasets", response_model=ApiResponse)
+async def list_ragflow_datasets(
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+    search: Optional[str] = None
+):
+    """
+    列出 RAGFlow 知识库（直接管理）
+
+    Args:
+        page: 页码
+        limit: 每页数量
+        search: 搜索名称
+
+    Returns:
+        知识库列表
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # 调用 RAGFlow API
+        result = ragflow_client.list_datasets(name=search)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "获取知识库列表失败"))
+
+        all_datasets = result.get("data", [])
+
+        # 分页
+        total = len(all_datasets)
+        start = (page - 1) * limit
+        end = start + limit
+        datasets = all_datasets[start:end]
+
+        # 格式化输出
+        formatted_datasets = []
+        for ds in datasets:
+            formatted_datasets.append({
+                "id": ds.get("id"),
+                "name": ds.get("name"),
+                "description": ds.get("description", ""),
+                "chunk_count": ds.get("chunk_count", 0),
+                "document_count": ds.get("document_count", 0),
+                "create_time": ds.get("create_time"),
+                "update_time": ds.get("update_time")
+            })
+
+        pages = (total + limit - 1) // limit if total > 0 else 1
+
+        return ApiResponse(
+            success=True,
+            data={
+                "items": formatted_datasets,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": pages,
+                "has_next": page < pages,
+                "has_prev": page > 1
+            },
+            message=f"获取到 {total} 个知识库"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"列出 RAGFlow 知识库失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ragflow/datasets", response_model=ApiResponse)
+async def create_ragflow_dataset(data: RAGFlowDatasetCreate):
+    """
+    创建 RAGFlow 知识库（直接管理）
+
+    Args:
+        data: 知识库创建数据
+
+    Returns:
+        创建结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # 创建知识库
+        result = ragflow_client.create_dataset(name=data.name, description=data.description)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "创建知识库失败"))
+
+        dataset_info = result.get("data", {})
+        dataset_id = dataset_info.get("id")
+
+        return ApiResponse(
+            success=True,
+            data={
+                "id": dataset_id,
+                "name": data.name,
+                "description": data.description
+            },
+            message=f"知识库 '{data.name}' 创建成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建 RAGFlow 知识库失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ragflow/datasets/{dataset_id}", response_model=ApiResponse)
+async def get_ragflow_dataset(dataset_id: str):
+    """
+    获取 RAGFlow 知识库详情
+
+    Args:
+        dataset_id: 知识库 ID
+
+    Returns:
+        知识库详情
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.get_dataset(dataset_id)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=404, detail=result.get("message", "知识库不存在"))
+
+        dataset = result.get("data", {})
+
+        return ApiResponse(
+            success=True,
+            data={
+                "id": dataset.get("id"),
+                "name": dataset.get("name"),
+                "description": dataset.get("description", ""),
+                "chunk_count": dataset.get("chunk_count", 0),
+                "document_count": dataset.get("document_count", 0),
+                "create_time": dataset.get("create_time"),
+                "update_time": dataset.get("update_time")
+            },
+            message="获取知识库详情成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取 RAGFlow 知识库详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/ragflow/datasets/{dataset_id}", response_model=ApiResponse)
+async def update_ragflow_dataset(dataset_id: str, data: RAGFlowDatasetUpdate):
+    """
+    更新 RAGFlow 知识库
+
+    Args:
+        dataset_id: 知识库 ID
+        data: 更新数据
+
+    Returns:
+        更新结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.update_dataset(dataset_id, name=data.name, description=data.description)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "更新知识库失败"))
+
+        return ApiResponse(
+            success=True,
+            data={"id": dataset_id, "name": data.name, "description": data.description},
+            message="知识库更新成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新 RAGFlow 知识库失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/ragflow/datasets/{dataset_id}", response_model=ApiResponse)
+async def delete_ragflow_dataset(dataset_id: str):
+    """
+    删除 RAGFlow 知识库
+
+    Args:
+        dataset_id: 知识库 ID
+
+    Returns:
+        删除结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.delete_dataset(dataset_id)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "删除知识库失败"))
+
+        return ApiResponse(
+            success=True,
+            data={"id": dataset_id},
+            message="知识库删除成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除 RAGFlow 知识库失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== RAGFlow 文档管理 API ====================
+
+
+@router.get("/ragflow/datasets/{dataset_id}/documents", response_model=ApiResponse)
+async def list_ragflow_documents(
+    dataset_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+    keywords: Optional[str] = None,
+    run_status: Optional[str] = None
+):
+    """
+    列出知识库中的文档
+
+    Args:
+        dataset_id: 知识库 ID
+        page: 页码
+        limit: 每页数量
+        keywords: 搜索关键词
+        run_status: 状态筛选 (DONE, RUNNING, FAIL, UNSTART)
+
+    Returns:
+        文档列表
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # 构建查询参数
+        params = {
+            "page": page,
+            "page_size": limit
+        }
+        if keywords:
+            params["keywords"] = keywords
+        if run_status:
+            params["run"] = run_status
+
+        result = ragflow_client.list_documents(dataset_id, **params)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "获取文档列表失败"))
+
+        # RAGFlow 返回格式: {code: 0, data: {list: [], total: n}}
+        data = result.get("data", {})
+        all_docs = data.get("list", []) or data.get("data", []) or []
+        total = data.get("total", len(all_docs))
+
+        # 格式化输出
+        formatted_docs = []
+        for doc in all_docs:
+            formatted_docs.append({
+                "id": doc.get("id"),
+                "name": doc.get("name"),
+                "size": doc.get("size", 0),
+                "type": doc.get("type", "unknown"),
+                "status": doc.get("run", "UNSTART"),
+                "chunk_count": doc.get("chunk_count", 0),
+                "progress": doc.get("progress", 0),
+                "create_time": doc.get("create_time"),
+                "update_time": doc.get("update_time")
+            })
+
+        pages = (total + limit - 1) // limit if total > 0 else 1
+
+        return ApiResponse(
+            success=True,
+            data={
+                "items": formatted_docs,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": pages,
+                "has_next": page < pages,
+                "has_prev": page > 1
+            },
+            message=f"获取到 {total} 个文档"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"列出 RAGFlow 文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ragflow/datasets/{dataset_id}/documents/{document_id}", response_model=ApiResponse)
+async def get_ragflow_document(dataset_id: str, document_id: str):
+    """
+    获取文档详情（包括预览信息）
+
+    Args:
+        dataset_id: 知识库 ID
+        document_id: 文档 ID
+
+    Returns:
+        文档详情和预览 URL
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.get_document(dataset_id, document_id)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=404, detail=result.get("message", "文档不存在"))
+
+        doc = result.get("data", {})
+
+        # 构建预览 URL (RAGFlow 通常通过特定路径访问文档)
+        preview_url = None
+        file_type = doc.get("type", "").lower()
+        if file_type in ["pdf", "doc", "docx", "txt", "md"]:
+            # 构建 RAGFlow 文档预览 URL
+            base_url = ragflow_client.base_url
+            preview_url = f"{base_url}/document/preview/{document_id}"
+
+        return ApiResponse(
+            success=True,
+            data={
+                "id": doc.get("id"),
+                "name": doc.get("name"),
+                "size": doc.get("size", 0),
+                "type": doc.get("type", "unknown"),
+                "status": doc.get("run", "UNSTART"),
+                "chunk_count": doc.get("chunk_count", 0),
+                "progress": doc.get("progress", 0),
+                "create_time": doc.get("create_time"),
+                "update_time": doc.get("update_time"),
+                "preview_url": preview_url
+            },
+            message="获取文档详情成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取 RAGFlow 文档详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ragflow/datasets/{dataset_id}/documents/{document_id}/download", response_model=ApiResponse)
+async def get_ragflow_document_download_url(dataset_id: str, document_id: str):
+    """
+    获取文档下载 URL
+
+    Args:
+        dataset_id: 知识库 ID
+        document_id: 文档 ID
+
+    Returns:
+        下载 URL
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # 构建下载 URL
+        base_url = ragflow_client.base_url
+        download_url = f"{base_url}/api/v1/datasets/{dataset_id}/documents/{document_id}/download"
+
+        return ApiResponse(
+            success=True,
+            data={
+                "document_id": document_id,
+                "download_url": download_url,
+                "expires_in": 3600  # URL 有效期 1 小时
+            },
+            message="获取下载链接成功"
+        )
+
+    except Exception as e:
+        logger.error(f"获取文档下载链接失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/ragflow/datasets/{dataset_id}/documents/{document_id}", response_model=ApiResponse)
+async def delete_ragflow_document(dataset_id: str, document_id: str):
+    """
+    删除文档
+
+    Args:
+        dataset_id: 知识库 ID
+        document_id: 文档 ID
+
+    Returns:
+        删除结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.delete_document(dataset_id, document_id)
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "删除文档失败"))
+
+        return ApiResponse(
+            success=True,
+            data={"id": document_id},
+            message="文档删除成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除 RAGFlow 文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ragflow/datasets/{dataset_id}/documents/{document_id}/parse", response_model=ApiResponse)
+async def parse_ragflow_document(dataset_id: str, document_id: str):
+    """
+    触发文档解析（重新分块）
+
+    Args:
+        dataset_id: 知识库 ID
+        document_id: 文档 ID
+
+    Returns:
+        解析结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        result = ragflow_client.parse_documents(dataset_id, [document_id])
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "解析文档失败"))
+
+        return ApiResponse(
+            success=True,
+            data={"document_id": document_id, "status": "parsing"},
+            message="文档解析已触发"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"解析 RAGFlow 文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ragflow/datasets/{dataset_id}/documents", response_model=ApiResponse)
+async def upload_ragflow_document(
+    dataset_id: str,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """
+    上传文件到知识库
+
+    Args:
+        dataset_id: 知识库 ID
+        file: 上传的文件
+        title: 自定义标题（可选）
+        db: 数据库会话
+
+    Returns:
+        上传结果
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # 读取文件内容
+        file_content = await file.read()
+        file_name = title or file.filename
+
+        # 上传到 RAGFlow
+        result = ragflow_client.upload_document_bytes(
+            dataset_id=dataset_id,
+            file_content=file_content,
+            file_name=file_name
+        )
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "上传文件失败"))
+
+        docs = result.get("data", [])
+        if not docs:
+            raise HTTPException(status_code=500, detail="上传成功但未返回文档信息")
+
+        doc_info = docs[0]
+
+        return ApiResponse(
+            success=True,
+            data={
+                "id": doc_info.get("id"),
+                "name": doc_info.get("name"),
+                "status": doc_info.get("run", "UNSTART")
+            },
+            message=f"文件 '{file_name}' 上传成功"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"上传 RAGFlow 文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ragflow/datasets/{dataset_id}/chunks", response_model=ApiResponse)
+async def get_ragflow_chunks(
+    dataset_id: str,
+    document_id: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """
+    获取知识库的文档块
+
+    Args:
+        dataset_id: 知识库 ID
+        document_id: 可选，筛选特定文档
+        page: 页码
+        limit: 每页数量
+
+    Returns:
+        文档块列表
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        ragflow_client = get_ragflow_client()
+
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=400, detail="RAGFlow 未配置")
+
+        # RAGFlow chunks API 端点
+        url = f"{ragflow_client.base_url}/api/v1/datasets/{dataset_id}/chunks"
+        params = {"page": page, "page_size": limit}
+        if document_id:
+            params["document_id"] = document_id
+
+        resp = ragflow_client.session.get(url, params=params, timeout=ragflow_client.timeout)
+        resp.raise_for_status()
+        result = resp.json()
+
+        if result.get("code") != 0:
+            raise HTTPException(status_code=500, detail=result.get("message", "获取文档块失败"))
+
+        data = result.get("data", {})
+        chunks = data.get("chunks", []) or data.get("list", [])
+        total = data.get("total", len(chunks))
+
+        # 格式化
+        formatted_chunks = []
+        for chunk in chunks:
+            formatted_chunks.append({
+                "id": chunk.get("id"),
+                "content": chunk.get("content", ""),
+                "document_id": chunk.get("document_id"),
+                "document_name": chunk.get("document_name", ""),
+                "similarity": chunk.get("similarity"),
+                "vector_similarity": chunk.get("vector_similarity"),
+                "term_similarity": chunk.get("term_similarity")
+            })
+
+        return ApiResponse(
+            success=True,
+            data={
+                "items": formatted_chunks,
+                "total": total,
+                "page": page,
+                "limit": limit
+            },
+            message=f"获取到 {total} 个文档块"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取 RAGFlow 文档块失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
