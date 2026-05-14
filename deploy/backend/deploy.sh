@@ -19,6 +19,19 @@ log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 COMPOSE_FILE="docker-compose.yml"
 HEALTH_CHECK_RETRIES=30
 
+# 加载环境变量
+load_env() {
+    if [[ -f ".env.backend" ]]; then
+        log_info "加载 .env.backend..."
+        set -a
+        source .env.backend
+        set +a
+    else
+        log_error ".env.backend 文件不存在！"
+        exit 1
+    fi
+}
+
 # 使用说明
 show_help() {
     cat << EOF
@@ -38,6 +51,7 @@ AutoGeo 后端部署脚本（共享 n8n 数据库）
 环境变量:
     BACKEND_IMAGE       后端镜像地址
     N8N_DB_PASSWORD     n8n PostgreSQL 密码（如果在 .env.backend 中）
+    JWT_SECRET_KEY      JWT签名密钥
 EOF
 }
 
@@ -53,6 +67,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$(dirname "$0")"
+
+# 加载环境变量
+load_env
 
 # 检查 n8n 是否运行
 check_n8n() {

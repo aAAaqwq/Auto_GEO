@@ -98,17 +98,10 @@ jobs:
               -u "${{ secrets.ALIYUN_ACR_USERNAME }}" \
               -p "${{ secrets.ALIYUN_ACR_PASSWORD }}" 2>/dev/null || true
 
-            docker-compose -f deploy/backend/docker-compose.yml up -d
-
-            sleep 15
-
-            if curl -sf http://localhost:8001/api/health > /dev/null 2>&1; then
-              echo "✅ [Backend] 部署成功"
-            else
-              echo "❌ [Backend] 健康检查失败"
-              docker-compose -f deploy/backend/docker-compose.yml logs --tail=30 backend
-              exit 1
-            fi
+            # 使用 deploy.sh 部署（会自动加载 .env.backend）
+            cd "$PROJECT_DIR/deploy/backend"
+            chmod +x deploy.sh
+            ./deploy.sh
 
   # ============================================
   # 部署前端
