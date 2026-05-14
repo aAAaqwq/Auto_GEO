@@ -61,16 +61,17 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
+          script_stop: false
           script: |
             echo "🚀 部署后端..."
             cd ~/Auto_GEO && git pull
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd deploy && docker-compose -f docker-compose.backend.yml pull backend
             docker-compose -f docker-compose.backend.yml up -d
             curl -sf http://localhost:8001/api/health && echo "✅ 部署成功"

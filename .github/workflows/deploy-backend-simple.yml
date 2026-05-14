@@ -57,7 +57,7 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -96,9 +96,8 @@ jobs:
             SERVER_IP="${{ secrets.SERVER_HOST }}"
             BACKUP_FILE="$DEPLOY_DIR/.env.backend.bak.$(date +%Y%m%d%H%M%S)"
             cp "$DEPLOY_DIR/.env.backend" "$BACKUP_FILE"
-            # 移除旧IP，添加新IP
-            sed -i "s|http://[0-9.]*|PLACEHOLDER|g" "$DEPLOY_DIR/.env.backend"
-            sed -i "s|PLACEHOLDER|${SERVER_IP},http://localhost:5173,http://127.0.0.1:5173,app://.,file://,http://localhost:3000|" "$DEPLOY_DIR/.env.backend"
+            # 使用变量捕获方式安全替换 CORS_ALLOWED_ORIGINS
+            sed -i "s|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=${SERVER_IP},http://localhost:5173,http://127.0.0.1:5173,app://.,file://,http://localhost:3000|" "$DEPLOY_DIR/.env.backend"
             echo "✅ CORS 配置已更新"
 
             cd "$DEPLOY_DIR"
@@ -109,7 +108,7 @@ jobs:
 
             # 更新 docker-compose 使用本地镜像
             echo "📝 更新 docker-compose 配置..."
-            sed -i 's|image: .*auto_geo_backend:latest|image: autogeo-backend:latest|' docker-compose.backend.yml
+            sed -i 's|image:.*auto_geo_backend:latest|image: autogeo-backend:latest|' docker-compose.backend.yml
 
             # 重启服务
             echo "🔄 重启后端服务..."

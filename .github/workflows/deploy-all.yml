@@ -26,7 +26,7 @@ jobs:
   deploy-backend:
     name: Deploy Backend
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.deploy_backend == 'true' }}
+    if: ${{ github.event.inputs.deploy_backend == true }}
     environment: production
 
     steps:
@@ -66,7 +66,7 @@ jobs:
 
             PROJECT_DIR="~/Auto_GEO"
             if [ ! -d "$PROJECT_DIR" ]; then
-              git clone https://github.com/Architecture-Matrix/Auto_GEO.git "$PROJECT_DIR"
+              git clone https://github.com/aAAaqwq/Auto_GEO.git "$PROJECT_DIR"
             fi
 
             cd "$PROJECT_DIR"
@@ -74,6 +74,7 @@ jobs:
             git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
             cd "$PROJECT_DIR/deploy"
+            export DEPLOY_DIR="$PROJECT_DIR/deploy"
 
             if [ ! -f ".env.backend" ]; then
               echo "❌ .env.backend 不存在"
@@ -84,8 +85,8 @@ jobs:
               -u "${{ secrets.ALIYUN_ACR_USERNAME }}" \
               -p "${{ secrets.ALIYUN_ACR_PASSWORD }}" 2>/dev/null || true
 
-            docker-compose -f docker-compose.backend.yml pull backend || true
-            docker-compose -f docker-compose.backend.yml up -d
+            docker-compose -f backend/docker-compose.yml pull backend || true
+            docker-compose -f backend/docker-compose.yml up -d
 
             sleep 10
 
@@ -93,7 +94,7 @@ jobs:
               echo "✅ [Backend] 部署成功"
             else
               echo "❌ [Backend] 健康检查失败"
-              docker-compose -f docker-compose.backend.yml logs --tail=30 backend
+              docker-compose -f backend/docker-compose.yml logs --tail=30 backend
               exit 1
             fi
 
@@ -103,8 +104,7 @@ jobs:
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.deploy_frontend == 'true' }}
-    needs: deploy-backend
+    if: ${{ github.event.inputs.deploy_frontend == true }}
     environment: production
 
     steps:
@@ -168,8 +168,8 @@ jobs:
           script: |
             echo "🚀 [Frontend] 部署..."
             cd ~/Auto_GEO/deploy
-            docker-compose -f docker-compose.backend.yml exec -T nginx nginx -s reload 2>/dev/null || \
-              docker-compose -f docker-compose.backend.yml up -d nginx
+            docker-compose -f backend/docker-compose.yml exec -T nginx nginx -s reload 2>/dev/null || \
+              docker-compose -f backend/docker-compose.yml up -d nginx
             echo "✅ [Frontend] 部署完成"
 
   # ============================================
