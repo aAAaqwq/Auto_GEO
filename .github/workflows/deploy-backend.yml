@@ -186,6 +186,20 @@ jobs:
             # 确保backups目录存在
             mkdir -p backups
 
+            # ============================================
+            # 清理旧容器和镜像
+            # ============================================
+            echo "🧹 清理旧容器和镜像..."
+            echo "   - 停止并移除旧容器..."
+            docker-compose -f backend/docker-compose.yml down || true
+            echo "   - 删除旧的后端镜像..."
+            docker rmi $(docker images -q 'auto_geo_backend*' 2>/dev/null) 2>/dev/null || true
+            docker rmi $(docker images -q 'autogeo-backend*' 2>/dev/null) 2>/dev/null || true
+            docker rmi $(docker images -q 'crpi*auto_geo_backend*' 2>/dev/null) 2>/dev/null || true
+            echo "   - 清理未使用的Docker资源..."
+            docker system prune -f --volumes || true
+            echo "✅ 清理完成"
+
             # 确保nginx配置目录存在
             mkdir -p nginx/conf.d nginx/ssl nginx/html
             if [ -f "$PROJECT_DIR/nginx/nginx.conf" ]; then
