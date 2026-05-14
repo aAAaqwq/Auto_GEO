@@ -42,6 +42,13 @@ export function login(data: LoginRequest): Promise<{ success: boolean; data?: Lo
 }
 
 /**
+ * 用户注册
+ */
+export function register(data: { username: string; password: string; nickname?: string; email?: string }): Promise<{ success: boolean; data?: LoginResponse['user']; message?: string }> {
+  return post('/users/register', data)
+}
+
+/**
  * 用户登出
  */
 export function logout(): Promise<{ success: boolean; message?: string }> {
