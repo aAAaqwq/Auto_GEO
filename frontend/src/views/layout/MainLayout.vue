@@ -48,6 +48,40 @@
           </template>
         </el-menu>
       </nav>
+
+      <!-- 用户信息区域 -->
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <div class="user-trigger">
+              <el-avatar :size="32" class="user-avatar">
+                {{ userStore.displayName.charAt(0).toUpperCase() }}
+              </el-avatar>
+              <div class="user-details">
+                <span class="user-name">{{ userStore.displayName }}</span>
+                <span class="user-role">{{ userStore.isAdmin ? '管理员' : '普通用户' }}</span>
+              </div>
+              <el-icon class="dropdown-icon"><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile">
+                  <el-icon><User /></el-icon>
+                  个人资料
+                </el-dropdown-item>
+                <el-dropdown-item command="changePassword">
+                  <el-icon><Lock /></el-icon>
+                  修改密码
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -79,22 +113,79 @@
         </router-view>
       </main>
     </div>
+
+    <!-- 修改密码对话框 -->
+    <el-dialog
+      v-model="changePasswordDialogVisible"
+      title="修改密码"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="changePasswordFormRef"
+        :model="changePasswordForm"
+        :rules="changePasswordRules"
+        label-width="100px"
+      >
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input
+            v-model="changePasswordForm.oldPassword"
+            type="password"
+            placeholder="请输入原密码"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="changePasswordForm.newPassword"
+            type="password"
+            placeholder="请输入新密码"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input
+            v-model="changePasswordForm.confirmPassword"
+            type="password"
+            placeholder="请再次输入新密码"
+            show-password
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="changePasswordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="changingPassword" @click="handleChangePassword">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Minus, FullScreen, Close } from '@element-plus/icons-vue'
-import type { RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
+import {
+  Minus,
+  FullScreen,
+  Close,
+  ArrowDown,
+  User,
+  Lock,
+  SwitchButton,
+} from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/modules/user'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 // 构建菜单路由结构（支持子菜单）
 const menuRoutes = computed(() => {
   const allRoutes = router.getRoutes()
-    .filter(r => r.path.startsWith('/') && !r.meta?.hidden)
+    .filter(r => r.path.startsWith('/') && !r.meta?.hidden && !r.meta?.roles)
 
   // 分离父路由和子路由
   const parentRoutes = allRoutes.filter(r => !r.meta?.parent)
@@ -138,6 +229,91 @@ const maximizeWindow = () => {
 
 const closeWindow = () => {
   window.electronAPI?.closeWindow()
+}
+
+// 用户下拉菜单命令处理
+function handleUserCommand(command: string) {
+  switch (command) {
+    case 'profile':
+      ElMessage.info('个人资料功能开发中')
+      break
+    case 'changePassword':
+      changePasswordDialogVisible.value = true
+      break
+    case 'logout':
+      handleLogout()
+      break
+  }
+}
+
+// 登出处理
+async function handleLogout() {
+  try {
+    await userStore.logout()
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  } catch {
+    ElMessage.error('退出失败')
+  }
+}
+
+// 修改密码
+const changePasswordDialogVisible = ref(false)
+const changePasswordFormRef = ref<FormInstance>()
+const changingPassword = ref(false)
+
+const changePasswordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+})
+
+const validateConfirmPassword = (_rule: any, value: string, callback: any) => {
+  if (value !== changePasswordForm.newPassword) {
+    callback(new Error('两次输入的密码不一致'))
+  } else {
+    callback()
+  }
+}
+
+const changePasswordRules: FormRules = {
+  oldPassword: [
+    { required: true, message: '请输入原密码', trigger: 'blur' },
+  ],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, max: 20, message: '密码长度应为 6-20 个字符', trigger: 'blur' },
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    { validator: validateConfirmPassword, trigger: 'blur' },
+  ],
+}
+
+async function handleChangePassword() {
+  if (!changePasswordFormRef.value) return
+
+  await changePasswordFormRef.value.validate(async (valid) => {
+    if (!valid) return
+
+    changingPassword.value = true
+    try {
+      const result = await userStore.changePassword(
+        changePasswordForm.oldPassword,
+        changePasswordForm.newPassword
+      )
+      if (result.success) {
+        ElMessage.success('密码修改成功')
+        changePasswordDialogVisible.value = false
+        // 清空表单
+        changePasswordFormRef.value?.resetFields()
+      } else {
+        ElMessage.error(result.message || '密码修改失败')
+      }
+    } finally {
+      changingPassword.value = false
+    }
+  })
 }
 </script>
 
@@ -244,6 +420,60 @@ const closeWindow = () => {
           font-size: 13px;
         }
       }
+    }
+  }
+
+  // 用户信息区域
+  .sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .user-info {
+    .user-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+    }
+
+    .user-avatar {
+      background: linear-gradient(135deg, #4a90e2, #67b26f);
+      color: white;
+      font-weight: 600;
+    }
+
+    .user-details {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+
+      .user-name {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .user-role {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+    }
+
+    .dropdown-icon {
+      color: var(--text-secondary);
+      font-size: 12px;
     }
   }
 }

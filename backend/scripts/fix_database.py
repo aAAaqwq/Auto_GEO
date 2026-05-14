@@ -117,6 +117,42 @@ def check_and_fix_database():
                     logger.error(f"✗ 添加 knowledge_items.{col_name} 列失败: {e}")
                     conn.rollback()
 
+        # 检查users表结构（用户认证字段）
+        cursor.execute("PRAGMA table_info(users)")
+        user_columns = cursor.fetchall()
+        user_existing = [col[1] for col in user_columns]
+
+        user_columns_to_check = [
+            ("role", "VARCHAR(20) DEFAULT 'user'"),
+            ("is_active", "BOOLEAN DEFAULT 1"),
+            ("last_login", "DATETIME"),
+            ("login_count", "INTEGER DEFAULT 0"),
+            ("failed_login_attempts", "INTEGER DEFAULT 0"),
+            ("locked_until", "DATETIME"),
+        ]
+
+        for col_name, col_def in user_columns_to_check:
+            if col_name not in user_existing:
+                logger.info(f"添加users缺失的列: {col_name}...")
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    logger.success(f"✓ users.{col_name} 列添加成功")
+                except Exception as e:
+                    logger.error(f"✗ 添加 users.{col_name} 列失败: {e}")
+                    conn.rollback()
+
+        # 如果role列不存在，需要确保第一个用户成为管理员
+        if "role" not in user_existing:
+            logger.info("设置第一个用户为管理员...")
+            try:
+                cursor.execute("UPDATE users SET role = 'admin' WHERE id = 1")
+                conn.commit()
+                logger.success("✓ 第一个用户已设为管理员")
+            except Exception as e:
+                logger.error(f"✗ 设置管理员失败: {e}")
+                conn.rollback()
+
         logger.success("数据库表结构检查和修复完成")
 
     except Exception as e:

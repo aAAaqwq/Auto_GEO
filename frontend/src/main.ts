@@ -12,6 +12,7 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
 import router from './router'
+import { useUserStore } from './stores/modules/user'
 import './assets/styles/index.scss'
 
 // 创建应用实例
@@ -26,6 +27,10 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { zIndex: 3000 })
+
+// 初始化用户状态（在挂载前完成）
+const userStore = useUserStore()
+userStore.initUser()
 
 // 挂载应用
 app.mount('#app')

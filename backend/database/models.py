@@ -468,26 +468,196 @@ class Knowledge(Base):
 class User(Base):
     """
     用户表
-    存储系统用户信息
+    存储系统用户信息，支持用户认证和角色管理
     """
 
     __tablename__ = "users"
     __table_args__ = TABLE_ARGS
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
-    username = Column(String(100), nullable=False, unique=True, comment="用户名")
-    email = Column(String(200), nullable=True, unique=True, comment="邮箱")
-    password_hash = Column(String(200), nullable=True, comment="密码哈希")
+    username = Column(String(100), nullable=False, unique=True, index=True, comment="用户名")
+    email = Column(String(200), nullable=True, unique=True, index=True, comment="邮箱")
+    password_hash = Column(String(255), nullable=False, comment="密码哈希（bcrypt）")
 
-    # 状态
-    status = Column(Integer, default=1, comment="状态：1=活跃 0=禁用")
+    # 角色管理
+    role = Column(
+        String(20),
+        default="user",
+        nullable=False,
+        index=True,
+        comment="角色：admin=管理员 user=普通用户"
+    )
+
+    # 状态管理
+    is_active = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+        comment="是否激活：True=激活 False=禁用"
+    )
+    status = Column(Integer, default=1, comment="状态：1=活跃 0=禁用（保留字段，优先使用is_active）")
+
+    # 登录追踪
+    last_login = Column(DateTime, nullable=True, comment="最后登录时间")
+    login_count = Column(Integer, default=0, comment="登录次数")
+
+    # 安全相关
+    failed_login_attempts = Column(Integer, default=0, comment="连续登录失败次数")
+    locked_until = Column(DateTime, nullable=True, comment="账户锁定截止时间")
 
     # 时间戳
     created_at = Column(DateTime, default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
 
     def __repr__(self):
-        return f"<User {self.username}>"
+        return f"<User {self.username} role={self.role} active={self.is_active}>"
+
+    @property
+    def is_admin(self) -> bool:
+        """检查是否为管理员"""
+        return self.role == "admin"
+
+    @property
+    def is_locked(self) -> bool:
+        """检查账户是否被锁定"""
+        if self.locked_until is None:
+            return False
+        from datetime import datetime
+        return datetime.now() < self.locked_until
+
+
+# ==================== 系统配置表 ====================
+
+
+class SystemConfig(Base):
+    """
+    系统配置表
+    存储系统级别的配置项，支持key-value存储和配置分类
+    """
+
+    __tablename__ = "system_configs"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    # 配置键值
+    config_key = Column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="配置键（唯一标识符）"
+    )
+    config_value = Column(Text, nullable=True, comment="配置值（JSON字符串或纯文本）")
+
+    # 配置分类
+    category = Column(
+        String(50),
+        default="general",
+        nullable=False,
+        index=True,
+        comment="配置分类：general=通用 auth=认证 security=安全 email=邮件 storage=存储"
+    )
+
+    # 配置描述
+    description = Column(Text, nullable=True, comment="配置项描述/说明")
+
+    # 数据类型（用于类型转换提示）
+    value_type = Column(
+        String(20),
+        default="string",
+        nullable=False,
+        comment="值类型：string=字符串 int=整数 float=浮点数 bool=布尔 json=JSON对象"
+    )
+
+    # 是否可编辑
+    is_editable = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="是否可通过界面编辑：True=可编辑 False=只读"
+    )
+
+    # 是否敏感配置（如API密钥）
+    is_sensitive = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="是否为敏感配置（如密码、密钥）：True=敏感 False=普通"
+    )
+
+    # 状态
+    is_active = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+        comment="是否启用：True=启用 False=禁用"
+    )
+
+    # 排序权重
+    sort_order = Column(Integer, default=0, comment="排序权重（越小越靠前）")
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
+    updated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="最后更新用户ID")
+
+    def __repr__(self):
+        return f"<SystemConfig {self.config_key}={self.config_value[:30] if self.config_value else None}>"
+
+    def get_value(self):
+        """
+        根据value_type自动转换并返回配置值
+        """
+        import json
+        from datetime import datetime
+
+        if self.config_value is None:
+            return None
+
+        try:
+            if self.value_type == "string":
+                return self.config_value
+            elif self.value_type == "int":
+                return int(self.config_value)
+            elif self.value_type == "float":
+                return float(self.config_value)
+            elif self.value_type == "bool":
+                return self.config_value.lower() in ("true", "1", "yes", "on")
+            elif self.value_type == "json":
+                return json.loads(self.config_value)
+            else:
+                return self.config_value
+        except (ValueError, json.JSONDecodeError) as e:
+            return self.config_value
+
+    def set_value(self, value):
+        """
+        根据value_type自动转换并设置配置值
+        """
+        import json
+
+        if value is None:
+            self.config_value = None
+            return
+
+        try:
+            if self.value_type == "string":
+                self.config_value = str(value)
+            elif self.value_type == "int":
+                self.config_value = str(int(value))
+            elif self.value_type == "float":
+                self.config_value = str(float(value))
+            elif self.value_type == "bool":
+                self.config_value = "true" if bool(value) else "false"
+            elif self.value_type == "json":
+                self.config_value = json.dumps(value, ensure_ascii=False)
+            else:
+                self.config_value = str(value)
+        except (ValueError, TypeError) as e:
+            self.config_value = str(value)
 
 
 # ==================== 参考文章表（爆火文章收集）====================

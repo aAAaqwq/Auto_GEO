@@ -6,3 +6,4 @@
 export { usePlatformStore } from './platform'
 export { useAccountStore } from './account'
 export { useArticleStore } from './article'
+export { useUserStore } from './user'

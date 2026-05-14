@@ -4,9 +4,24 @@
  */
 
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import { useUserStore } from '@/stores/modules/user'
+import { ElMessage } from 'element-plus'
 
 // 路由定义
 const routes: RouteRecordRaw[] = [
+  // 登录页（独立路由，不使用 MainLayout）
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/auth/LoginView.vue'),
+    meta: { title: '登录', hidden: true, public: true },
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/auth/RegisterView.vue'),
+    meta: { title: '注册', hidden: true, public: true },
+  },
   {
     path: '/',
     component: () => import('@/views/layout/MainLayout.vue'),
@@ -153,6 +168,14 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '系统设置', icon: 'Setting', order: 15 },
       },
 
+      // 16. 后台管理（仅管理员）
+      {
+        path: 'admin',
+        name: 'Admin',
+        component: () => import('@/views/admin/AdminView.vue'),
+        meta: { title: '后台管理', icon: 'Tools', order: 16, roles: ['admin'] },
+      },
+
       // ========== 以下是不在侧边栏显示的辅助路由 ==========
       // GEO数据概览（已废弃，保留路由以免报错）
       {
@@ -172,11 +195,55 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, from, next) => {
   // 设置页面标题
   if (to.meta?.title) {
     document.title = `${to.meta.title} - AutoGeo`
   }
+
+  // 获取用户 store
+  const userStore = useUserStore()
+
+  // 初始化用户状态（从本地存储恢复）
+  if (!userStore.user) {
+    userStore.initUser()
+  }
+
+  // 公开页面（如登录页）直接放行
+  if (to.meta?.public || to.meta?.hidden) {
+    // 如果已登录且访问登录页，重定向到首页
+    if (userStore.isLoggedIn && to.path === '/login') {
+      next('/dashboard')
+      return
+    }
+    next()
+    return
+  }
+
+  // 检查是否已登录
+  if (!userStore.isLoggedIn) {
+    // 尝试从服务器获取当前用户信息（token 可能还有效）
+    const isValid = await userStore.fetchCurrentUser()
+    if (!isValid) {
+      ElMessage.warning('请先登录')
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+  }
+
+  // 检查角色权限
+  const requiredRoles = to.meta?.roles as string[] | undefined
+  if (requiredRoles && requiredRoles.length > 0) {
+    if (!requiredRoles.includes(userStore.user?.role || '')) {
+      ElMessage.error('您没有权限访问此页面')
+      next('/dashboard')
+      return
+    }
+  }
+
   next()
 })
 

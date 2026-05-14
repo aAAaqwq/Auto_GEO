@@ -38,6 +38,8 @@ import backend.api.client as client  # 客户管理
 import backend.api.auto_publish as auto_publish  # 自动发布任务
 import backend.api.browser as browser  # 本地浏览器桥接
 import backend.api.deployment as deployment  # 部署配置
+import backend.api.user as user  # 用户管理
+import backend.api.admin as admin  # 管理员配置
 
 # 导入服务组件
 from backend.services.websocket_manager import ws_manager
@@ -183,6 +185,8 @@ app.include_router(site_builder.router)
 app.include_router(auto_publish.router)  # 自动发布任务管理
 app.include_router(browser.router)  # 本地浏览器桥接
 app.include_router(deployment.router)  # 部署配置
+app.include_router(user.router)  # 用户认证
+app.include_router(admin.router)  # 管理员配置
 
 
 # ==================== WebSocket 端点 ====================

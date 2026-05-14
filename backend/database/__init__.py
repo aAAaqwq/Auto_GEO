@@ -150,6 +150,7 @@ def init_db():
         AutoPublishTask,
         AutoPublishRecord,
         SiteProject,
+        SystemConfig,
     )
 
     # 获取已存在的表名用于对比

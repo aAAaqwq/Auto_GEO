@@ -101,26 +101,59 @@ class KeywordService:
                 logger.success("✅ n8n 响应成功")
 
                 # 3. 健壮的数据解析
+                # n8n 可能返回 { "output": { ... } } 或直接 { ... }
                 raw_data = result.data
+                if isinstance(raw_data, dict) and "output" in raw_data:
+                    raw_data = raw_data["output"]
+
                 keywords_list = []
+                similar_keywords = []
+                variants = []
+                conversion_phrases = []
 
-                # n8n 可能返回 { "keywords": [...] } 或直接 [...]
-                if isinstance(raw_data, list):
-                    keywords_list = raw_data
-                elif isinstance(raw_data, dict):
-                    keywords_list = raw_data.get("keywords") or raw_data.get("data") or []
+                # 🌟 新版数据结构解析 - 适配 n8n 最新响应格式
+                if isinstance(raw_data, dict):
+                    # 1. 相近关键词 (similar_keywords)
+                    similar_keywords = raw_data.get("similar_keywords", [])
 
-                # 格式化输出
+                    # 2. 核心关键词 (keywords 或 variants)
+                    keywords_list = raw_data.get("keywords", [])
+                    variants = raw_data.get("variants", [])
+
+                    # 3. 高转化搜索短语 (conversion_phrases, questions, high_conversion_phrases)
+                    conversion_phrases = raw_data.get("conversion_phrases", [])
+                    if not conversion_phrases:
+                        conversion_phrases = raw_data.get("questions", [])
+                    if not conversion_phrases:
+                        conversion_phrases = raw_data.get("high_conversion_phrases", [])
+
+                # 构建响应数据
+                response_data = {"status": "success"}
+
+                if similar_keywords:
+                    response_data["similar_keywords"] = similar_keywords
+
+                if variants:
+                    response_data["variants"] = variants
+
+                if conversion_phrases:
+                    response_data["conversion_phrases"] = conversion_phrases
+
+                # 4. 解析 keywords 列表（核心关键词）
                 formatted_keywords = []
                 for item in keywords_list:
                     if isinstance(item, str):
                         formatted_keywords.append({"keyword": item, "difficulty_score": 50})
                     elif isinstance(item, dict):
-                        # 确保包含必要字段
                         if "keyword" in item:
                             formatted_keywords.append(item)
 
-                return {"status": "success", "keywords": formatted_keywords}
+                if formatted_keywords:
+                    response_data["keywords"] = formatted_keywords
+
+                logger.info(f"📊 蒸馏结果: {len(formatted_keywords)} 个核心词, {len(similar_keywords)} 个相近词, {len(variants)} 个变体, {len(conversion_phrases)} 个转化短语")
+
+                return response_data
             else:
                 logger.error(f"❌ n8n 业务逻辑报错: {result.error}")
                 return {"status": "error", "message": result.error}

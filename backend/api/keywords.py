@@ -186,7 +186,7 @@ async def get_project_keywords(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/distill", response_model=ApiResponse)
 async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db)):
-    """蒸馏关键词"""
+    """蒸馏关键词 - 支持新版数据结构（相近关键词、核心变体、高转化短语）"""
     project = db.query(Project).filter(Project.id == request.project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -215,7 +215,22 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
     if result.get("status") == "error":
         return ApiResponse(success=False, message=result.get("message", "蒸馏失败"))
 
+    # 🌟 新版数据结构解析
+    # 1. 相近关键词 (similar_keywords)
+    similar_keywords = result.get("similar_keywords", [])
+
+    # 2. 核心关键词变体 (keywords 或 variants)
     keywords_data = result.get("keywords", [])
+    variants_data = result.get("variants", [])
+
+    # 3. 高转化搜索短语 (conversion_phrases, questions, 或 high_conversion_phrases)
+    conversion_phrases = result.get("conversion_phrases", [])
+    if not conversion_phrases:
+        conversion_phrases = result.get("questions", [])
+    if not conversion_phrases:
+        conversion_phrases = result.get("high_conversion_phrases", [])
+
+    # 保存核心关键词到数据库
     saved_keywords = []
     for kw_data in keywords_data:
         keyword = service.add_keyword(
@@ -225,7 +240,20 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
         )
         saved_keywords.append({"id": keyword.id, "keyword": keyword.keyword})
 
-    return ApiResponse(success=True, message=f"成功蒸馏{len(saved_keywords)}个词", data={"keywords": saved_keywords})
+    # 构建响应数据 - 支持新旧两种格式
+    response_data = {
+        "keywords": saved_keywords,
+        "similar_keywords": similar_keywords,
+        "variants": variants_data,
+        "conversion_phrases": conversion_phrases,
+    }
+
+    total_count = len(saved_keywords) + len(similar_keywords) + len(conversion_phrases)
+    return ApiResponse(
+        success=True,
+        message=f"蒸馏完成！生成 {len(saved_keywords)} 个核心词、{len(similar_keywords)} 个相近词、{len(conversion_phrases)} 个转化短语",
+        data=response_data
+    )
 
 
 @router.post("/generate-questions", response_model=ApiResponse)
