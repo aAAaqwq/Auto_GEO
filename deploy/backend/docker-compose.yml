@@ -15,7 +15,7 @@ services:
           cpus: '0.5'
           memory: '512M'
     env_file:
-      - .env
+      - .env.backend
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
