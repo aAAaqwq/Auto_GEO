@@ -4,7 +4,7 @@
 处理用户注册、登录、JWT认证等
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Body
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -596,8 +596,7 @@ async def delete_user(
 
 @router.put("/me/password", response_model=ApiResponse)
 async def change_password(
-    old_password: str,
-    new_password: str = Field(..., min_length=6, max_length=100),
+    body: dict = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -607,6 +606,21 @@ async def change_password(
     - **old_password**: 旧密码
     - **new_password**: 新密码（至少6位）
     """
+    old_password = body.get("old_password")
+    new_password = body.get("new_password")
+
+    if not old_password or not new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="旧密码和新密码都是必填的"
+        )
+
+    if len(new_password) < 6 or len(new_password) > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码长度必须在6-100位之间"
+        )
+
     try:
         # 验证旧密码
         if not verify_password(old_password, current_user.password_hash):
