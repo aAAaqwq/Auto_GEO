@@ -24,7 +24,9 @@ from pydantic import BaseModel, Field, EmailStr
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 # JWT配置
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not JWT_SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable is required")
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天
 
