@@ -1,4 +1,4 @@
-# AutoGeo Backend Dockerfile (优化版 v3.2)
+# AutoGeo Backend Dockerfile (优化版 v3.3)
 # 多阶段构建 + 安全优化 + 生产就绪
 
 # ============================================
