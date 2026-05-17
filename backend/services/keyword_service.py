@@ -74,7 +74,7 @@ class KeywordService:
     ) -> Dict[str, Any]:
         """
         🌟 核心方法：执行关键词蒸馏 (调用 n8n)
-        修正了之前的 404 错误，对接标准 webhook 路径
+        v2: 增强n8n响应解析，支持多种嵌套格式
         """
         logger.info(f"🧪 开始关键词蒸馏: {core_kw} - {target_info}")
 
@@ -100,35 +100,73 @@ class KeywordService:
             if result.status == "success":
                 logger.success("✅ n8n 响应成功")
 
-                # 3. 健壮的数据解析
-                # n8n 可能返回 { "output": { ... } } 或直接 { ... }
+                # 3. 深度解析n8n响应数据
                 raw_data = result.data
-                if isinstance(raw_data, dict) and "output" in raw_data:
-                    raw_data = raw_data["output"]
+
+                # 记录原始响应结构用于调试
+                import json as _json
+                try:
+                    raw_str = _json.dumps(raw_data, ensure_ascii=False, default=str)[:2000]
+                    logger.info(f"🔍 n8n原始响应: {raw_str}")
+                except Exception:
+                    logger.info(f"🔍 n8n原始响应(非序列化): {type(raw_data)} - {str(raw_data)[:1000]}")
+
+                # 深度解包：处理多层嵌套 (output/body/data/result 等)
+                raw_data = self._deep_unpack(raw_data)
 
                 keywords_list = []
                 similar_keywords = []
                 variants = []
                 conversion_phrases = []
 
-                # 🌟 新版数据结构解析 - 适配 n8n 最新响应格式
                 if isinstance(raw_data, dict):
-                    # 1. 相近关键词 (similar_keywords)
-                    similar_keywords = raw_data.get("similar_keywords", [])
+                    # 1. 相近关键词
+                    similar_keywords = self._extract_list(raw_data, [
+                        "similar_keywords", "similar", "related_keywords",
+                        "related", "long_tail_keywords", "longTailKeywords",
+                    ])
 
-                    # 2. 核心关键词 (keywords 或 variants)
-                    keywords_list = raw_data.get("keywords", [])
-                    variants = raw_data.get("variants", [])
+                    # 2. 核心关键词变体
+                    variants_raw = self._extract_list(raw_data, [
+                        "variants", "keyword_variants", "keywordVariants",
+                        "core_keywords", "coreKeywords",
+                    ])
+                    variants = variants_raw
 
-                    # 3. 高转化搜索短语 (conversion_phrases, questions, high_conversion_phrases)
-                    conversion_phrases = raw_data.get("conversion_phrases", [])
-                    if not conversion_phrases:
-                        conversion_phrases = raw_data.get("questions", [])
-                    if not conversion_phrases:
-                        conversion_phrases = raw_data.get("high_conversion_phrases", [])
+                    # 3. 高转化搜索短语
+                    conversion_phrases = self._extract_list(raw_data, [
+                        "conversion_phrases", "conversionPhrases",
+                        "high_conversion_phrases", "highConversionPhrases",
+                        "questions", "search_phrases", "searchPhrases",
+                        "long_tail_phrases", "longTailPhrases",
+                        "phrases", "search_questions",
+                    ])
+
+                    # 4. 核心关键词（可能和 variants 重叠，需区分格式）
+                    keywords_raw = raw_data.get("keywords", [])
+                    if isinstance(keywords_raw, list):
+                        # 检查是否是对象数组 [{keyword, ...}] 还是字符串数组
+                        if keywords_raw and isinstance(keywords_raw[0], dict) and "keyword" in keywords_raw[0]:
+                            # 已经是标准格式 [{keyword: "xx", ...}]
+                            keywords_list = keywords_raw
+                        elif keywords_raw and isinstance(keywords_raw[0], str):
+                            # 字符串数组 -> 转为对象格式
+                            keywords_list = [{"keyword": kw, "difficulty_score": 50} for kw in keywords_raw if kw]
+                        elif keywords_raw and isinstance(keywords_raw[0], dict) and not keywords and not variants:
+                            # 可能是对象数组但不含 keyword 字段，尝试提取
+                            keywords_list = keywords_raw
+
+                # 兜底：如果所有字段都为空，尝试从 raw_data 的所有键中自动检测数组
+                if not keywords_list and not similar_keywords and not variants and not conversion_phrases:
+                    logger.warning("⚠️ 标准字段解析为空，尝试自动检测数组字段...")
+                    auto_result = self._auto_detect_arrays(raw_data)
+                    similar_keywords = auto_result.get("similar_keywords", [])
+                    keywords_list = auto_result.get("keywords", [])
+                    variants = auto_result.get("variants", [])
+                    conversion_phrases = auto_result.get("conversion_phrases", [])
 
                 # 构建响应数据
-                response_data = {"status": "success"}
+                response_data = {"status": "success", "raw_response": raw_data}
 
                 if similar_keywords:
                     response_data["similar_keywords"] = similar_keywords
@@ -139,7 +177,7 @@ class KeywordService:
                 if conversion_phrases:
                     response_data["conversion_phrases"] = conversion_phrases
 
-                # 4. 解析 keywords 列表（核心关键词）
+                # 解析 keywords 列表
                 formatted_keywords = []
                 for item in keywords_list:
                     if isinstance(item, str):
@@ -161,6 +199,90 @@ class KeywordService:
         except Exception as e:
             logger.exception(f"🚨 蒸馏服务连接异常: {e}")
             return {"status": "error", "message": str(e)}
+
+    def _deep_unpack(self, data: Any) -> Any:
+        """深度解包n8n嵌套响应"""
+        import json as _json
+
+        if data is None:
+            return {}
+
+        # 处理JSON字符串
+        if isinstance(data, str):
+            try:
+                data = _json.loads(data)
+            except (_json.JSONDecodeError, ValueError):
+                return {"text_content": data}
+
+        if not isinstance(data, dict):
+            return data
+
+        # 常见n8n嵌套键，逐层解包
+        nested_keys = ["output", "body", "data", "result", "response", "json"]
+        for key in nested_keys:
+            if key in data and isinstance(data[key], dict):
+                inner = data[key]
+                # 只有当内层数据看起来像业务数据（非完整n8n响应）时才解包
+                # 如果内层还有 status/data/output 等元数据键，继续解包
+                if any(k in inner for k in nested_keys + ["keywords", "similar_keywords", "variants", "phrases", "questions"]):
+                    return self._deep_unpack(inner)
+
+        return data
+
+    def _extract_list(self, data: dict, keys: list) -> list:
+        """从字典中按多个候选键名提取列表"""
+        for key in keys:
+            val = data.get(key)
+            if isinstance(val, list) and len(val) > 0:
+                return val
+            if isinstance(val, str):
+                # 可能是逗号分隔的字符串
+                try:
+                    import json as _json
+                    parsed = _json.loads(val)
+                    if isinstance(parsed, list):
+                        return parsed
+                except (_json.JSONDecodeError, ValueError):
+                    if "," in val:
+                        return [v.strip() for v in val.split(",") if v.strip()]
+        return []
+
+    def _auto_detect_arrays(self, data: Any) -> Dict[str, list]:
+        """自动从raw_data中检测数组字段并分类"""
+        if not isinstance(data, dict):
+            return {}
+
+        result = {
+            "similar_keywords": [],
+            "keywords": [],
+            "variants": [],
+            "conversion_phrases": [],
+        }
+
+        for key, val in data.items():
+            if not isinstance(val, list) or len(val) == 0:
+                continue
+
+            key_lower = key.lower()
+
+            # 分类
+            if any(kw in key_lower for kw in ["similar", "related", "long_tail", "related_keyword"]):
+                if not result["similar_keywords"]:
+                    result["similar_keywords"] = val
+            elif any(kw in key_lower for kw in ["variant", "core_keyword", "corekeyword"]):
+                if not result["variants"]:
+                    result["variants"] = val
+            elif any(kw in key_lower for kw in ["conversion", "phrase", "question", "search"]):
+                if not result["conversion_phrases"]:
+                    result["conversion_phrases"] = val
+            elif any(kw in key_lower for kw in ["keyword", "key_word"]):
+                if not result["keywords"]:
+                    result["keywords"] = val
+            # 如果没匹配到，且是字符串数组，归入 conversion_phrases
+            elif val and isinstance(val[0], str) and not result["conversion_phrases"]:
+                result["conversion_phrases"] = val
+
+        return result
 
     async def generate_questions(self, keyword: str, count: int = 5) -> List[str]:
         """

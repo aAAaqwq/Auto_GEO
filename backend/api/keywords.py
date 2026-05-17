@@ -201,6 +201,8 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
         or (project.company_name or "").strip()
     )
 
+    logger.info(f"蒸馏请求: core_kw={core_kw}, target_info={target_info}, project={project.name}")
+
     result = await service.distill(
         core_kw=core_kw,
         target_info=target_info,
@@ -213,7 +215,11 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
     )
 
     if result.get("status") == "error":
+        logger.error(f"蒸馏失败: {result.get('message')}")
         return ApiResponse(success=False, message=result.get("message", "蒸馏失败"))
+
+    # 提取n8n原始响应（用于调试和前端兜底解析）
+    raw_response = result.get("raw_response")
 
     # 🌟 新版数据结构解析
     # 1. 相近关键词 (similar_keywords)
@@ -233,10 +239,13 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
     # 保存核心关键词到数据库
     saved_keywords = []
     for kw_data in keywords_data:
+        kw_text = kw_data.get("keyword", "") if isinstance(kw_data, dict) else str(kw_data)
+        if not kw_text.strip():
+            continue
         keyword = service.add_keyword(
             project_id=request.project_id,
-            keyword=kw_data.get("keyword", ""),
-            difficulty_score=kw_data.get("difficulty_score"),
+            keyword=kw_text,
+            difficulty_score=kw_data.get("difficulty_score") if isinstance(kw_data, dict) else None,
         )
         saved_keywords.append({"id": keyword.id, "keyword": keyword.keyword})
 
@@ -248,7 +257,13 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
         "conversion_phrases": conversion_phrases,
     }
 
+    # 透传原始响应用于前端调试兜底
+    if raw_response:
+        response_data["raw_response"] = raw_response
+
     total_count = len(saved_keywords) + len(similar_keywords) + len(conversion_phrases)
+    logger.info(f"蒸馏完成: {len(saved_keywords)} 核心词, {len(similar_keywords)} 相近词, {len(conversion_phrases)} 转化短语")
+
     return ApiResponse(
         success=True,
         message=f"蒸馏完成！生成 {len(saved_keywords)} 个核心词、{len(similar_keywords)} 个相近词、{len(conversion_phrases)} 个转化短语",

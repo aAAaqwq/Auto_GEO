@@ -96,7 +96,44 @@ class GeoArticleService:
             )
 
             if n8n_res.status == "success":
-                gen_log.info(f"✅ AI 生成任务已触发，等待 n8n 异步回调 (article_id: {article.id})")
+                # n8n 可能同步返回文章数据，也可能只触发任务等待回调
+                n8n_data = n8n_res.data or {}
+
+                if n8n_data.get("title") and n8n_data.get("content"):
+                    # 同步模式：n8n 直接返回了文章内容
+                    gen_log.info(f"✅ n8n 同步返回文章 (article_id: {article.id})")
+                    article.title = n8n_data["title"]
+                    article.content = n8n_data["content"]
+
+                    # 提取 SEO 评分
+                    seo_score = n8n_data.get("seo_score")
+                    # n8n 的 seo 评分可能在响应顶层（extra 字段）
+                    if not seo_score:
+                        seo_extra = getattr(n8n_res, "seo", None)
+                        if isinstance(seo_extra, dict):
+                            seo_score = seo_extra.get("score")
+                    if seo_score:
+                        article.ai_score = int(seo_score)
+
+                    # 根据发布策略更新状态
+                    strategy = article.publish_strategy or "draft"
+                    if strategy == "immediate":
+                        article.publish_status = "publishing"
+                    elif strategy == "scheduled":
+                        article.publish_status = "scheduled"
+                    else:
+                        article.publish_status = "completed"
+                        article.error_msg = None
+
+                    self.db.commit()
+                    gen_log.success(f"✅ 文章 {article.id} 同步生成完成，策略: {strategy}")
+
+                    # 如果是立即发布，触发发布逻辑
+                    if strategy == "immediate":
+                        asyncio.create_task(self.execute_publish(article.id))
+                else:
+                    # 异步模式：等待 n8n 回调
+                    gen_log.info(f"✅ AI 生成任务已触发，等待 n8n 异步回调 (article_id: {article.id})")
             else:
                 article.publish_status = "failed"
                 article.error_msg = n8n_res.error or "触发 n8n 生成失败"

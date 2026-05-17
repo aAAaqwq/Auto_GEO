@@ -105,14 +105,13 @@
     </div>
 
     <!-- 蒸馏结果区 -->
-    <div v-if="results.length > 0 || distilling" class="distill-results">
+    <div v-if="hasResults || distilling" class="distill-results">
       <div class="results-header">
         <h4 class="results-title">
           <svg viewBox="0 0 16 16" fill="currentColor" width="16">
             <path d="M10.97 4.97a.75.75 0 011.07 1.05l-3.99 4.99a.75.75 0 01-1.08.02L4.324 8.384a.75.75 0 111.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 01.02-.022z"/>
           </svg>
           蒸馏结果
-          <span class="results-count">({{ results.length }})</span>
         </h4>
         <button
           v-if="hasUnsaved"
@@ -128,7 +127,7 @@
 
       <div class="results-list">
         <!-- 加载骨架屏 -->
-        <template v-if="distilling && results.length === 0">
+        <template v-if="distilling && !hasResults">
           <div v-for="i in 3" :key="'skeleton-' + i" class="result-skeleton">
             <div class="skeleton-number"></div>
             <div class="skeleton-content">
@@ -141,45 +140,54 @@
           </div>
         </template>
 
-        <!-- 结果列表 -->
-        <TransitionGroup name="result">
-          <div
+        <!-- 相近关键词区域 -->
+        <ResultSection
+          v-if="similarKeywords.length > 0"
+          title="相近关键词"
+          :items="similarKeywords.map(kw => ({ key: kw, label: kw }))"
+          :count="similarKeywords.length"
+          tag-class="similar-tag"
+        >
+          <template #icon>
+            <svg viewBox="0 0 16 16" fill="currentColor" width="14">
+              <path d="M6.5 2a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1zm3 0a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1z"/>
+              <path d="M6 8a6 6 0 1111.96-4.65l3.44 3.44a.5.5 0 01-.7.7l-3.44-3.44A6 6 0 016 8zm0-5a5 5 0 109.95 3.05l-2.44-2.44a.5.5 0 10-.71.71l2.44 2.44A5 5 0 006 3z"/>
+            </svg>
+          </template>
+        </ResultSection>
+
+        <!-- 核心关键词变体区域 -->
+        <ResultSection
+          v-if="keywordVariants.length > 0"
+          title="核心关键词"
+          :items="keywordVariants.map(kv => ({ key: kv.keyword, label: kv.keyword }))"
+          :count="keywordVariants.length"
+          tag-class="variant-tag"
+        >
+          <template #icon>
+            <svg viewBox="0 0 16 16" fill="currentColor" width="14">
+              <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 14.5a6.5 6.5 0 110-13 6.5 6.5 0 010 13zM6 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM8 10c-1.1 0-2 .4-2.7 1l-1 1.7c-.2.3-.3.7-.3 1 0 .8.7 1.5 1.5 1.5h3c.8 0 1.5-.7 1.5-1.5 0-.3-.1-.7-.3-1l-1-1.7c-.7-.6-1.7-1-2.7-1z"/>
+            </svg>
+          </template>
+        </ResultSection>
+
+        <!-- 高转化搜索短语区域 -->
+        <PhraseList
+          v-if="conversionPhrases.length > 0"
+          title="高转化搜索短语"
+          :phrases="conversionPhrases"
+          @save="savePhrase"
+        />
+
+        <!-- 兼容旧版结果列表 -->
+        <TransitionGroup v-if="results.length > 0" name="result">
+          <ResultItem
             v-for="(result, index) in results"
             :key="result.id"
-            class="result-item"
-            :class="{ saved: result.saved }"
-          >
-            <div class="result-number">{{ index + 1 }}</div>
-            <div class="result-content">
-              <div class="result-keyword">
-                <span class="keyword-tag">{{ result.keyword }}</span>
-              </div>
-              <div class="result-questions">
-                <div
-                  v-for="(q, qIndex) in result.questions"
-                  :key="qIndex"
-                  class="question-chip"
-                >
-                  {{ q }}
-                </div>
-              </div>
-            </div>
-            <div class="result-action">
-              <button
-                v-if="!result.saved"
-                class="action-btn save"
-                @click="saveResult(result)"
-              >
-                保存
-              </button>
-              <span v-else class="saved-badge">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="14">
-                  <path d="M10.97 4.97a.75.75 0 011.07 1.05l-3.99 4.99a.75.75 0 01-1.08.02L4.324 8.384a.75.75 0 111.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 01.02-.022z"/>
-                </svg>
-                已保存
-              </span>
-            </div>
-          </div>
+            :result="result"
+            :index="index"
+            @save="saveResult"
+          />
         </TransitionGroup>
       </div>
     </div>
@@ -190,6 +198,9 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { geoKeywordApi } from '@/services/api'
+import ResultSection from './ResultSection.vue'
+import PhraseList from './PhraseList.vue'
+import ResultItem from './ResultItem.vue'
 
 // ==================== 类型定义 ====================
 interface Project {
@@ -208,6 +219,17 @@ interface DistillResult {
   saved: boolean
 }
 
+interface KeywordVariant {
+  keyword: string
+  score?: number
+}
+
+interface ConversionPhrase {
+  question: string
+  keyword?: string
+  saved: boolean
+}
+
 // ==================== Props ====================
 interface Props {
   currentProject: Project | null
@@ -218,6 +240,9 @@ const props = defineProps<Props>()
 // ==================== 状态 ====================
 const distilling = ref(false)
 const results = ref<DistillResult[]>([])
+const similarKeywords = ref<string[]>([])
+const keywordVariants = ref<KeywordVariant[]>([])
+const conversionPhrases = ref<ConversionPhrase[]>([])
 
 const distillForm = ref({
   keyword: '',
@@ -238,7 +263,14 @@ const isSynced = computed(() => {
 })
 
 const hasUnsaved = computed(() => {
-  return results.value.some(r => !r.saved)
+  return conversionPhrases.value.some(p => !p.saved) || results.value.some(r => !r.saved)
+})
+
+const hasResults = computed(() => {
+  return similarKeywords.value.length > 0 ||
+    keywordVariants.value.length > 0 ||
+    conversionPhrases.value.length > 0 ||
+    results.value.length > 0
 })
 
 // ==================== 方法 ====================
@@ -249,10 +281,16 @@ watch(() => props.currentProject, (project) => {
     distillForm.value.keyword = project.domain_keyword || ''
     distillForm.value.company = project.company_name || ''
     results.value = []
+    similarKeywords.value = []
+    keywordVariants.value = []
+    conversionPhrases.value = []
   } else {
     distillForm.value.keyword = ''
     distillForm.value.company = ''
     results.value = []
+    similarKeywords.value = []
+    keywordVariants.value = []
+    conversionPhrases.value = []
   }
 }, { immediate: true })
 
@@ -263,40 +301,89 @@ const startDistill = async () => {
     return
   }
 
+  // 清空之前的结果
+  results.value = []
+  similarKeywords.value = []
+  keywordVariants.value = []
+  conversionPhrases.value = []
+
   distilling.value = true
   try {
     const result = await geoKeywordApi.distill({
       project_id: props.currentProject!.id,
+      core_kw: distillForm.value.keyword,
+      target_info: distillForm.value.company,
       company_name: distillForm.value.company,
       industry: props.currentProject?.industry || '',
       description: props.currentProject?.description || '',
       count: 5,
     })
 
-    if (result.success && result.data?.keywords) {
-      const keywords = result.data.keywords
-      for (const kw of keywords) {
-        const questionsResult = await geoKeywordApi.generateQuestions({
-          keyword_id: kw.id,
-          count: 3,
-        })
+    if (result.success && result.data) {
+      const data = result.data
 
-        results.value.push({
-          id: kw.id.toString(),
-          keyword: kw.keyword,
-          questions: questionsResult.data?.questions?.map((q: any) => q.question) || [],
-          saved: true,
-        })
+      // 解析相近关键词 (similar_keywords)
+      if (data.similar_keywords && Array.isArray(data.similar_keywords)) {
+        similarKeywords.value = data.similar_keywords
+      }
+
+      // 解析核心关键词变体 (keywords 或 variants)
+      const variants = data.keywords || data.variants || []
+      if (Array.isArray(variants) && variants.length > 0) {
+        keywordVariants.value = variants.map((v: any) =>
+          typeof v === 'string' ? { keyword: v } : v
+        )
+      }
+
+      // 解析高转化搜索短语 (conversion_phrases, questions, 或 high_conversion_phrases)
+      const phrases = data.conversion_phrases || data.questions || data.high_conversion_phrases || []
+      if (Array.isArray(phrases) && phrases.length > 0) {
+        conversionPhrases.value = phrases.map((p: any) => ({
+          question: typeof p === 'string' ? p : p.question || p.text || '',
+          keyword: typeof p === 'string' ? undefined : p.keyword,
+          saved: false
+        }))
+      }
+
+      // 兜底：如果标准字段都为空，尝试从 raw_response 中解析
+      if (
+        similarKeywords.value.length === 0 &&
+        keywordVariants.value.length === 0 &&
+        conversionPhrases.value.length === 0 &&
+        data.raw_response
+      ) {
+        const raw = data.raw_response
+        // 从 raw 中提取 keywords 数组
+        const rawKw = raw.keywords || []
+        if (Array.isArray(rawKw) && rawKw.length > 0) {
+          keywordVariants.value = rawKw.map((v: any) =>
+            typeof v === 'string' ? { keyword: v } : v
+          )
+        }
+        // 从 raw 中提取 questions 数组
+        const rawQ = raw.questions || raw.conversion_phrases || []
+        if (Array.isArray(rawQ) && rawQ.length > 0) {
+          conversionPhrases.value = rawQ.map((p: any) => ({
+            question: typeof p === 'string' ? p : p.question || p.text || '',
+            keyword: typeof p === 'string' ? undefined : p.keyword,
+            saved: false
+          }))
+        }
+        // 从 raw 中提取 similar_keywords
+        const rawSimilar = raw.similar_keywords || raw.related_keywords || []
+        if (Array.isArray(rawSimilar) && rawSimilar.length > 0) {
+          similarKeywords.value = rawSimilar
+        }
       }
 
       // 触发刷新事件
       emit('refresh')
-      ElMessage.success(`蒸馏完成，生成 ${keywords.length} 个关键词`)
+
+      ElMessage.success(`蒸馏完成！生成 ${similarKeywords.value.length} 个相近关键词、${keywordVariants.value.length} 个核心变体、${conversionPhrases.value.length} 个高转化短语`)
     } else {
       ElMessage.error(result.message || '蒸馏失败')
     }
   } catch (error) {
-    console.error('蒸馏失败:', error)
     ElMessage.error('蒸馏失败，请稍后重试')
   } finally {
     distilling.value = false
@@ -313,6 +400,16 @@ const saveResult = async (result: DistillResult) => {
   }
 }
 
+// 保存单个短语
+const savePhrase = async (phrase: ConversionPhrase) => {
+  try {
+    phrase.saved = true
+    ElMessage.success('保存成功')
+  } catch (error) {
+    ElMessage.error('保存失败')
+  }
+}
+
 // 全部保存
 const saveAll = async () => {
   for (const result of results.value) {
@@ -320,11 +417,19 @@ const saveAll = async () => {
       await saveResult(result)
     }
   }
+  for (const phrase of conversionPhrases.value) {
+    if (!phrase.saved) {
+      await savePhrase(phrase)
+    }
+  }
 }
 
 // 清空结果
 const clearResults = () => {
   results.value = []
+  similarKeywords.value = []
+  keywordVariants.value = []
+  conversionPhrases.value = []
 }
 
 // ==================== Emits ====================
@@ -590,108 +695,6 @@ const emit = defineEmits<{
   overflow-y: auto;
 }
 
-// 结果项
-.result-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 10px;
-  margin-bottom: 8px;
-  border-left: 3px solid transparent;
-  transition: all 0.2s;
-
-  &:hover {
-    background: #f3f4f6;
-  }
-
-  &.saved {
-    border-left-color: #10b981;
-    background: linear-gradient(90deg, rgba(16, 185, 129, 0.05) 0%, transparent 100%);
-  }
-
-  .result-number {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  .result-content {
-    flex: 1;
-    min-width: 0;
-
-    .result-keyword {
-      margin-bottom: 8px;
-
-      .keyword-tag {
-        display: inline-flex;
-        align-items: center;
-        padding: 4px 10px;
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        color: #d97706;
-      }
-    }
-
-    .result-questions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-
-      .question-chip {
-        padding: 4px 10px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 6px;
-        font-size: 12px;
-        color: #6b7280;
-      }
-    }
-  }
-
-  .result-action {
-    flex-shrink: 0;
-
-    .action-btn {
-      padding: 6px 12px;
-      background: #4a90e2;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      color: white;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        background: #357abd;
-      }
-    }
-
-    .saved-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 8px;
-      background: #d1fae5;
-      border-radius: 6px;
-      font-size: 11px;
-      color: #059669;
-      font-weight: 500;
-    }
-  }
-}
-
 // 骨架屏
 .result-skeleton {
   display: flex;
@@ -779,4 +782,7 @@ const emit = defineEmits<{
   opacity: 1;
   transform: translateX(0);
 }
+
+// 动画
+
 </style>

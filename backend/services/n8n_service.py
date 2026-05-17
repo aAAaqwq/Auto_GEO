@@ -81,7 +81,7 @@ class N8nResponse(BaseModel):
     error: Optional[str] = None
     timestamp: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="allow")
 
 
 # ==================== 服务类 ====================

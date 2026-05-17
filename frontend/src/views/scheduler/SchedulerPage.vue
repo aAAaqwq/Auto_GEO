@@ -177,7 +177,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
-const API_BASE = 'http://127.0.0.1:8001/api/scheduler'
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/scheduler`
 
 interface Task {
   id: number

@@ -359,6 +359,49 @@ export const systemApi = {
   getHealth: () => get<HealthStatus>('/health')
 }
 
+// ==================== 11. 知识库 API ====================
+export const knowledgeApi = {
+  // 企业分类
+  getCategories: (params?: { keyword?: string }) => get<any>('/knowledge/categories', params),
+  createCategory: (data: any) => post<any>('/knowledge/categories', data),
+  updateCategory: (id: number, data: any) => put<any>(`/knowledge/categories/${id}`, data),
+  deleteCategory: (id: number) => del<any>(`/knowledge/categories/${id}`),
+
+  // 知识项
+  getKnowledgeByCategory: (categoryId: number, params?: { keyword?: string }) =>
+    get<any>(`/knowledge/categories/${categoryId}/knowledge`, params),
+  createKnowledge: (categoryId: number, data: any) =>
+    post<any>(`/knowledge/categories/${categoryId}/knowledge`, data),
+  updateKnowledge: (id: number, data: any) => put<any>(`/knowledge/knowledge/${id}`, data),
+  deleteKnowledge: (id: number) => del<any>(`/knowledge/knowledge/${id}`),
+
+  // RAGFlow 直接管理
+  getRAGFlowStatus: () => get<any>('/knowledge/ragflow/status'),
+  getRAGFlowDatasets: (params?: { page?: number; limit?: number; search?: string }) =>
+    get<any>('/knowledge/ragflow/datasets', params),
+  createRAGFlowDataset: (data: { name: string; description?: string }) =>
+    post<any>('/knowledge/ragflow/datasets', data),
+  getRAGFlowDataset: (datasetId: string) => get<any>(`/knowledge/ragflow/datasets/${datasetId}`),
+  updateRAGFlowDataset: (datasetId: string, data: any) =>
+    put<any>(`/knowledge/ragflow/datasets/${datasetId}`, data),
+  deleteRAGFlowDataset: (datasetId: string) =>
+    del<any>(`/knowledge/ragflow/datasets/${datasetId}`),
+  getRAGFlowDocuments: (datasetId: string, params?: any) =>
+    get<any>(`/knowledge/ragflow/datasets/${datasetId}/documents`, params),
+  getRAGFlowDocument: (datasetId: string, documentId: string) =>
+    get<any>(`/knowledge/ragflow/datasets/${datasetId}/documents/${documentId}`),
+  getRAGFlowDocumentDownloadUrl: (datasetId: string, documentId: string) =>
+    get<any>(`/knowledge/ragflow/datasets/${datasetId}/documents/${documentId}/download`),
+  deleteRAGFlowDocument: (datasetId: string, documentId: string) =>
+    del<any>(`/knowledge/ragflow/datasets/${datasetId}/documents/${documentId}`),
+  parseRAGFlowDocument: (datasetId: string, documentId: string) =>
+    post<any>(`/knowledge/ragflow/datasets/${datasetId}/documents/${documentId}/parse`, {}),
+  uploadRAGFlowDocument: (datasetId: string, formData: FormData) =>
+    post<any>(`/knowledge/ragflow/datasets/${datasetId}/documents`, formData),
+  getRAGFlowChunks: (datasetId: string, params?: { document_id?: string; page?: number; limit?: number }) =>
+    get<any>(`/knowledge/ragflow/datasets/${datasetId}/chunks`, params)
+}
+
 // 导出统一的api对象
 export const api = {
   account: accountApi,
@@ -370,7 +413,8 @@ export const api = {
   scheduler: schedulerApi,
   publish: publishApi,
   autoPublish: autoPublishApi,
-  system: systemApi
+  system: systemApi,
+  knowledge: knowledgeApi
 }
 
 // 导出默认实例

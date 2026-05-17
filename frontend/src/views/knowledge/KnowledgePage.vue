@@ -10,302 +10,240 @@
         </div>
         <div class="header-text">
           <h1 class="page-title">知识库管理</h1>
-          <p class="page-desc">企业知识库分类管理，支持多企业隔离存储</p>
+          <p class="page-desc">RAGFlow 智能知识库，支持文档解析、存储与语义检索</p>
         </div>
       </div>
       <div class="header-actions">
-        <el-button type="primary" size="large" @click="showCreateCategory = true">
+        <!-- RAGFlow 状态指示 -->
+        <div class="ragflow-status" :class="{ connected: ragflowConnected }">
+          <span class="status-dot"></span>
+          <span class="status-text">{{ ragflowConnected ? 'RAGFlow 已连接' : 'RAGFlow 未连接' }}</span>
+        </div>
+
+        <el-button type="primary" size="large" @click="createDataset">
           <svg viewBox="0 0 16 16" fill="currentColor" width="16">
             <path d="M8 4a.5.5 0 01.5.5v3h3a.5.5 0 010 1h-3v3a.5.5 0 01-1 0v-3h-3a.5.5 0 010-1h3v-3A.5.5 0 018 4z"/>
           </svg>
-          新建企业分类
+          新建知识库
         </el-button>
       </div>
     </header>
 
-    <!-- 企业分类网格 -->
-    <section class="categories-section">
+    <!-- RAGFlow 知识库 -->
+    <section class="ragflow-section">
       <div class="section-header">
-        <h2 class="section-title">企业知识库</h2>
+        <h2 class="section-title">知识库列表</h2>
         <div class="section-actions">
           <el-input
-            v-model="searchKeyword"
-            placeholder="搜索企业或知识..."
-            prefix-icon="Search"
+            v-model="datasetSearch"
+            placeholder="搜索知识库..."
             style="width: 260px"
             clearable
-          />
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+          <el-button @click="loadDatasets">
+            <el-icon><Refresh /></el-icon>
+            刷新
+          </el-button>
         </div>
       </div>
 
-      <div v-loading="loading" class="categories-grid">
-        <!-- 企业分类卡片 -->
+      <div v-loading="datasetsLoading" class="datasets-grid">
         <div
-          v-for="category in filteredCategories"
-          :key="category.id"
-          class="category-card"
-          @click="viewCategory(category)"
+          v-for="dataset in filteredDatasets"
+          :key="dataset.id"
+          class="dataset-card"
+          @click="viewDataset(dataset)"
         >
-          <div class="card-header">
-            <div class="company-info">
-              <div class="company-avatar" :style="{ background: category.color }">
-                {{ category.initial }}
-              </div>
-              <div class="company-details">
-                <h3 class="company-name">{{ category.name }}</h3>
-                <span class="company-industry">{{ category.industry }}</span>
-              </div>
-            </div>
-            <el-dropdown trigger="click" @click.stop>
-              <div class="more-btn">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="16">
-                  <path d="M3 9.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/>
-                </svg>
-              </div>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="editCategory(category)">
-                    <el-icon><Edit /></el-icon>
-                    编辑分类
-                  </el-dropdown-item>
-                  <el-dropdown-item @click="manageKnowledge(category)">
-                    <el-icon><Document /></el-icon>
-                    管理知识
-                  </el-dropdown-item>
-                  <el-dropdown-item @click="addKnowledge(category)">
-                    <el-icon><Plus /></el-icon>
-                    添加知识
-                  </el-dropdown-item>
-                  <el-dropdown-item divided @click="deleteCategory(category)">
-                    <el-icon><Delete /></el-icon>
-                    删除分类
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
-
-          <div class="card-body">
-            <p class="company-desc">{{ category.description || '暂无描述' }}</p>
-
-            <!-- 知识统计 -->
-            <div class="knowledge-stats">
-              <div class="stat-item">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="14">
-                  <path d="M6.5 2a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1zm3 0a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1z"/>
-                </svg>
-                <span>{{ category.knowledge_count || 0 }} 条知识</span>
-              </div>
-              <div class="stat-item">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="14">
-                  <path d="M8 1a4 4 0 00-4 4v2H2v2h2v6a2 2 0 002 2h4a2 2 0 002-2V9h2V7h-2V5a4 4 0 00-4-4zm0 2a2 2 0 012 2v2H6V5a2 2 0 012-2z"/>
-                </svg>
-                <span>{{ category.project_count || 0 }} 个关联项目</span>
-              </div>
-            </div>
-
-            <!-- 标签 -->
-            <div class="card-tags">
-              <span v-for="tag in category.tags" :key="tag" class="tag">{{ tag }}</span>
-            </div>
-          </div>
-
-          <div class="card-footer">
-            <span class="update-time">{{ formatTime(category.updated_at) }}</span>
-            <button class="action-btn">查看详情</button>
-          </div>
-        </div>
-
-        <!-- 空状态 -->
-        <div v-if="!loading && filteredCategories.length === 0" class="empty-state">
-          <div class="empty-icon">
+          <div class="dataset-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
             </svg>
           </div>
-          <h3>还没有企业知识库</h3>
-          <p>创建第一个企业分类开始管理知识</p>
-          <el-button type="primary" @click="showCreateCategory = true">创建企业分类</el-button>
+          <div class="dataset-info">
+            <h3 class="dataset-name">{{ dataset.name }}</h3>
+            <p class="dataset-desc">{{ dataset.description || '暂无描述' }}</p>
+            <div class="dataset-stats">
+              <span class="stat-badge">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="12">
+                  <path d="M4 1a1 1 0 00-1 1v12a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H4zm0 1h8v12H4V2z"/>
+                </svg>
+                {{ dataset.document_count }} 文档
+              </span>
+              <span class="stat-badge">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="12">
+                  <path d="M2 3h12v2H2V3zm2 4h8v2H4V7zm2 4h6v2H6v-2z"/>
+                </svg>
+                {{ dataset.chunk_count }} 块
+              </span>
+            </div>
+          </div>
+          <el-dropdown trigger="click" @click.stop>
+            <span class="dataset-more">···</span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="openUploadDialog(dataset)">
+                  <el-icon><Upload /></el-icon>
+                  上传文档
+                </el-dropdown-item>
+                <el-dropdown-item @click="deleteDataset(dataset)">
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
+
+        <el-empty v-if="!datasetsLoading && filteredDatasets.length === 0" description="暂无知识库，点击右上角新建" />
       </div>
     </section>
 
-    <!-- 知识列表抽屉 -->
+    <!-- RAGFlow 文档抽屉 -->
     <el-drawer
-      v-model="showKnowledgeDrawer"
-      :title="`知识管理 - ${currentCategory?.name}`"
-      size="60%"
-      class="knowledge-drawer"
+      v-model="showDocDrawer"
+      :title="`知识库: ${activeDataset?.name || ''}`"
+      size="680px"
+      :close-on-click-modal="false"
     >
-      <div class="drawer-content">
-        <div class="drawer-header">
-          <div class="search-box">
-            <el-input
-              v-model="knowledgeSearch"
-              placeholder="搜索知识..."
-              prefix-icon="Search"
-              clearable
-            />
-          </div>
-          <el-button type="primary" @click="showAddKnowledge = true">
-            <el-icon><Plus /></el-icon>
-            添加知识
-          </el-button>
-        </div>
+      <div class="doc-header">
+        <el-input
+          v-model="docSearch"
+          placeholder="搜索文档..."
+          clearable
+          style="width: 240px"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-button type="primary" @click="openUploadDialog(activeDataset!)">
+          <el-icon><Upload /></el-icon>
+          上传文档
+        </el-button>
+      </div>
 
-        <div v-loading="knowledgeLoading" class="knowledge-list">
-          <div
-            v-for="item in filteredKnowledge"
-            :key="item.id"
-            class="knowledge-item"
-          >
-            <div class="item-header">
-              <h4 class="item-title">{{ item.title }}</h4>
-              <el-dropdown trigger="click">
-                <span class="item-more">···</span>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item @click="editKnowledge(item)">
-                      <el-icon><Edit /></el-icon>
-                      编辑
-                    </el-dropdown-item>
-                    <el-dropdown-item @click="deleteKnowledge(item)">
-                      <el-icon><Delete /></el-icon>
-                      删除
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </div>
-            <p class="item-content">{{ item.content }}</p>
-            <div class="item-meta">
-              <span class="item-type">{{ item.type }}</span>
-              <span class="item-time">{{ formatTime(item.created_at) }}</span>
+      <div v-loading="docsLoading" class="doc-list">
+        <div
+          v-for="doc in filteredDocs"
+          :key="doc.id"
+          class="doc-item"
+        >
+          <div class="doc-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14,2 14,8 20,8"/>
+            </svg>
+          </div>
+          <div class="doc-info">
+            <h4 class="doc-name">{{ doc.name }}</h4>
+            <div class="doc-meta">
+              <el-tag :type="getDocStatusType(doc.run_status)" size="small">
+                {{ getDocStatusLabel(doc.run_status) }}
+              </el-tag>
+              <span class="doc-size">{{ formatFileSize(doc.size) }}</span>
+              <span class="doc-type">{{ doc.type.toUpperCase() }}</span>
             </div>
           </div>
-
-          <el-empty v-if="!knowledgeLoading && filteredKnowledge.length === 0" description="暂无知识数据" />
+          <el-dropdown trigger="click" @click.stop>
+            <span class="doc-more">···</span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="previewDocument(doc)">
+                  <el-icon><Document /></el-icon>
+                  预览
+                </el-dropdown-item>
+                <el-dropdown-item @click="parseDocument(doc)">
+                  <el-icon><Refresh /></el-icon>
+                  重新解析
+                </el-dropdown-item>
+                <el-dropdown-item divided @click="deleteDocument(doc)">
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
+
+        <el-empty v-if="!docsLoading && filteredDocs.length === 0" description="暂无文档" />
       </div>
     </el-drawer>
 
-    <!-- 创建/编辑分类对话框 -->
+    <!-- 上传对话框 -->
     <el-dialog
-      v-model="showCreateCategory"
-      :title="editingCategory ? '编辑企业分类' : '创建企业分类'"
-      width="540px"
+      v-model="showUploadDialog"
+      title="上传文档"
+      width="520px"
       :close-on-click-modal="false"
-      class="category-dialog"
     >
-      <el-form :model="categoryForm" label-position="top">
-        <el-form-item label="企业名称" required>
-          <el-input
-            v-model="categoryForm.name"
-            placeholder="如：绿阳环保科技有限公司"
-            clearable
-            size="large"
-          />
-        </el-form-item>
-
-        <el-form-item label="所属行业">
-          <el-select
-            v-model="categoryForm.industry"
-            placeholder="选择行业"
-            allow-create
-            filterable
-            style="width: 100%"
-            size="large"
-          >
-            <el-option
-              v-for="ind in industries"
-              :key="ind"
-              :label="ind"
-              :value="ind"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="企业描述">
-          <el-input
-            v-model="categoryForm.description"
-            type="textarea"
-            :rows="3"
-            placeholder="简要描述企业业务范围"
-          />
-        </el-form-item>
-
-        <el-form-item label="标签">
-          <el-input
-            v-model="categoryForm.tagsInput"
-            placeholder="输入标签，用逗号分隔"
-          />
-          <div class="form-tip">如：环保, 清洁服务, 无人机</div>
-        </el-form-item>
-
-        <el-form-item label="主题颜色">
-          <div class="color-picker">
-            <div
-              v-for="color in presetColors"
-              :key="color"
-              class="color-option"
-              :class="{ active: categoryForm.color === color }"
-              :style="{ background: color }"
-              @click="categoryForm.color = color"
-            />
+      <el-upload
+        class="upload-area"
+        drag
+        action="#"
+        :auto-upload="false"
+        :on-change="handleUploadChange"
+        :file-list="uploadFiles"
+        accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx"
+      >
+        <div class="upload-content">
+          <el-icon class="upload-icon"><Upload /></el-icon>
+          <div class="upload-text">
+            <span>将文件拖到此处，或</span>
+            <em>点击上传</em>
           </div>
-        </el-form-item>
-      </el-form>
+          <div class="upload-tip">支持 PDF、Word、Excel、PPT、TXT 等格式</div>
+        </div>
+      </el-upload>
+
+      <el-checkbox v-model="autoParse" style="margin-top: 16px">
+        上传后自动解析文档
+      </el-checkbox>
 
       <template #footer>
-        <el-button @click="showCreateCategory = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveCategory">
-          {{ editingCategory ? '保存修改' : '创建分类' }}
-        </el-button>
+        <el-button @click="showUploadDialog = false">取消</el-button>
       </template>
     </el-dialog>
 
-    <!-- 添加/编辑知识对话框 -->
+    <!-- 文档预览对话框 -->
     <el-dialog
-      v-model="showAddKnowledge"
-      :title="editingKnowledge ? '编辑知识' : '添加知识'"
-      width="540px"
+      v-model="showPreview"
+      :title="`预览: ${previewDoc?.name || ''}`"
+      width="800px"
       :close-on-click-modal="false"
-      class="knowledge-dialog"
     >
-      <el-form :model="knowledgeForm" label-position="top">
-        <el-form-item label="知识标题" required>
-          <el-input
-            v-model="knowledgeForm.title"
-            placeholder="如：企业优势介绍"
-            clearable
-            size="large"
-          />
-        </el-form-item>
-
-        <el-form-item label="知识类型">
-          <el-select v-model="knowledgeForm.type" style="width: 100%" size="large">
-            <el-option label="企业介绍" value="company_intro" />
-            <el-option label="产品服务" value="product" />
-            <el-option label="行业知识" value="industry" />
-            <el-option label="常见问题" value="faq" />
-            <el-option label="其他" value="other" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="知识内容" required>
-          <el-input
-            v-model="knowledgeForm.content"
-            type="textarea"
-            :rows="6"
-            placeholder="输入详细的知识内容..."
-          />
-        </el-form-item>
-      </el-form>
-
+      <div v-if="previewDoc" class="document-preview">
+        <div class="preview-info">
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="文件名">{{ previewDoc.name }}</el-descriptions-item>
+            <el-descriptions-item label="类型">{{ previewDoc.type.toUpperCase() }}</el-descriptions-item>
+            <el-descriptions-item label="大小">{{ formatFileSize(previewDoc.size) }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getDocStatusType(previewDoc.run_status)" size="small">
+                {{ getDocStatusLabel(previewDoc.run_status) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="分块方式">{{ previewDoc.chunk_method }}</el-descriptions-item>
+            <el-descriptions-item label="创建时间">{{ previewDoc.created_at }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+        <div v-if="previewDoc.run_status === 'DONE' || previewDoc.run_status === 'COMPLETE' || previewDoc.run_status === '3'" class="preview-chunks">
+          <h4>文档块</h4>
+          <el-empty description="预览功能开发中，可前往 RAGFlow 管理后台查看完整内容" />
+        </div>
+        <div v-else class="preview-not-ready">
+          <el-alert type="info" :closable="false">
+            文档正在处理中，请在解析完成后查看预览
+          </el-alert>
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="showAddKnowledge = false">取消</el-button>
-        <el-button type="primary" :loading="savingKnowledge" @click="saveKnowledge">
-          {{ editingKnowledge ? '保存修改' : '添加知识' }}
+        <el-button @click="showPreview = false">关闭</el-button>
+        <el-button v-if="previewDoc?.run_status !== 'DONE' && previewDoc?.run_status !== 'COMPLETE' && previewDoc?.run_status !== '3'" type="primary" @click="parseDocument(previewDoc!)">
+          重新解析
         </el-button>
       </template>
     </el-dialog>
@@ -315,444 +253,271 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Delete, Plus, Document, Search } from '@element-plus/icons-vue'
+import { Delete, Document, Search, Upload, Refresh } from '@element-plus/icons-vue'
+import { api } from '@/services/api'
 
-// ==================== 类型定义 ====================
-interface Category {
-  id: number
+// ==================== 类型 ====================
+interface RAGFlowDataset {
+  id: string
   name: string
-  industry?: string
   description?: string
-  tags?: string[]
-  color: string
-  initial: string
-  knowledge_count?: number
-  project_count?: number
-  updated_at: string
+  document_count: number
+  chunk_count: number
   created_at: string
+  updated_at: string
 }
 
-interface Knowledge {
-  id: number
-  title: string
-  content: string
+interface RAGFlowDocument {
+  id: string
+  name: string
   type: string
-  category_id: number
+  size: number
+  run_status: string
+  chunk_method: string
   created_at: string
+  updated_at: string
 }
 
 // ==================== 状态 ====================
-const loading = ref(false)
-const saving = ref(false)
-const knowledgeLoading = ref(false)
-const savingKnowledge = ref(false)
+const ragflowConnected = ref(false)
+const datasetsLoading = ref(false)
+const docsLoading = ref(false)
+const uploadLoading = ref(false)
 
-const searchKeyword = ref('')
-const knowledgeSearch = ref('')
+const datasets = ref<RAGFlowDataset[]>([])
+const documents = ref<RAGFlowDocument[]>([])
+const activeDataset = ref<RAGFlowDataset | null>(null)
+const previewDoc = ref<RAGFlowDocument | null>(null)
 
-const categories = ref<Category[]>([])
-const knowledges = ref<Knowledge[]>([])
+const datasetSearch = ref('')
+const docSearch = ref('')
 
-const showCreateCategory = ref(false)
-const showKnowledgeDrawer = ref(false)
-const showAddKnowledge = ref(false)
+const showDocDrawer = ref(false)
+const showUploadDialog = ref(false)
+const showPreview = ref(false)
 
-const currentCategory = ref<Category | null>(null)
-const editingCategory = ref<Category | null>(null)
-const editingKnowledge = ref<Knowledge | null>(null)
-
-const categoryForm = ref({
-  name: '',
-  industry: '',
-  description: '',
-  tagsInput: '',
-  color: '#6366f1',
-})
-
-const knowledgeForm = ref({
-  title: '',
-  type: 'company_intro',
-  content: '',
-})
-
-// 行业列表
-const industries = [
-  'SaaS软件',
-  '环保工程',
-  '工业清洗',
-  '无人机服务',
-  '电商',
-  '教育培训',
-  '金融服务',
-  '医疗健康',
-  '制造业',
-  '房地产',
-  '餐饮美食',
-  '旅游出行',
-  '物流运输',
-  '新能源',
-  '化工行业',
-  '建筑工程',
-  '其他',
-]
-
-// 预设颜色
-const presetColors = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
-  '#f97316', '#eab308', '#22c55e', '#14b8a6',
-  '#06b6d4', '#3b82f6',
-]
+const uploadFiles = ref<any[]>([])
+const uploadDatasetId = ref('')
+const autoParse = ref(true)
 
 // ==================== 计算属性 ====================
-const filteredCategories = computed(() => {
-  if (!searchKeyword.value) return categories.value
-  const keyword = searchKeyword.value.toLowerCase()
-  return categories.value.filter(c =>
-    c.name.toLowerCase().includes(keyword) ||
-    c.industry?.toLowerCase().includes(keyword) ||
-    c.tags?.some(t => t.toLowerCase().includes(keyword))
+const filteredDatasets = computed(() => {
+  if (!datasetSearch.value) return datasets.value
+  const kw = datasetSearch.value.toLowerCase()
+  return datasets.value.filter(d =>
+    d.name.toLowerCase().includes(kw) ||
+    d.description?.toLowerCase().includes(kw)
   )
 })
 
-const filteredKnowledge = computed(() => {
-  if (!knowledgeSearch.value) return knowledges.value
-  const keyword = knowledgeSearch.value.toLowerCase()
-  return knowledges.value.filter(k =>
-    k.title.toLowerCase().includes(keyword) ||
-    k.content.toLowerCase().includes(keyword)
-  )
+const filteredDocs = computed(() => {
+  if (!docSearch.value) return documents.value
+  const kw = docSearch.value.toLowerCase()
+  return documents.value.filter(d => d.name.toLowerCase().includes(kw))
 })
 
-// ==================== 方法 ====================
-
-// 加载企业分类
-const loadCategories = async () => {
-  loading.value = true
+// ==================== 数据集操作 ====================
+const loadRAGFlowStatus = async () => {
   try {
-    const response = await fetch('/api/knowledge/categories')
-    if (!response.ok) {
-      throw new Error('加载分类失败')
+    const res = await api.knowledge.getRAGFlowStatus()
+    if (res.success && res.data) {
+      ragflowConnected.value = res.data.connected
     }
-    const data = await response.json()
-    categories.value = data.map((cat: any) => ({
-      id: cat.id,
-      name: cat.name,
-      industry: cat.industry,
-      description: cat.description,
-      tags: cat.tags ? cat.tags.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [],
-      color: cat.color,
-      initial: cat.name.charAt(0),
-      knowledge_count: cat.knowledge_count,
-      project_count: cat.project_count,
-      updated_at: cat.updated_at,
-      created_at: cat.created_at,
-    }))
-  } catch (error) {
-    console.error('加载分类失败:', error)
-    ElMessage.error('加载分类失败')
-  } finally {
-    loading.value = false
+  } catch {
+    ragflowConnected.value = false
   }
 }
 
-// 查看分类
-const viewCategory = async (category: Category) => {
-  await manageKnowledge(category)
-}
-
-// 管理知识
-const manageKnowledge = async (category: Category) => {
-  currentCategory.value = category
-  showKnowledgeDrawer.value = true
-  await loadKnowledge(category.id)
-}
-
-// 加载知识列表
-const loadKnowledge = async (categoryId: number) => {
-  knowledgeLoading.value = true
+const loadDatasets = async () => {
+  datasetsLoading.value = true
   try {
-    const response = await fetch(`/api/knowledge/categories/${categoryId}/knowledge`)
-    if (!response.ok) {
-      throw new Error('加载知识失败')
+    const res = await api.knowledge.getRAGFlowDatasets({ page: 1, limit: 50 })
+    if (res.success && res.data) {
+      datasets.value = res.data.items || []
     }
-    const data = await response.json()
-    knowledges.value = data
-  } catch (error) {
-    console.error('加载知识失败:', error)
-    ElMessage.error('加载知识失败')
+  } catch {
+    ElMessage.error('加载数据集失败')
   } finally {
-    knowledgeLoading.value = false
+    datasetsLoading.value = false
   }
 }
 
-// 添加知识
-const addKnowledge = (category: Category) => {
-  currentCategory.value = category
-  editingKnowledge.value = null
-  knowledgeForm.value = { title: '', type: 'company_intro', content: '' }
-  showAddKnowledge.value = true
-}
-
-// 编辑知识
-const editKnowledge = (item: Knowledge) => {
-  editingKnowledge.value = item
-  knowledgeForm.value = {
-    title: item.title,
-    type: item.type,
-    content: item.content,
-  }
-  showAddKnowledge.value = true
-}
-
-// 删除知识
-const deleteKnowledge = async (item: Knowledge) => {
+const createDataset = async () => {
   try {
-    await ElMessageBox.confirm(`确定要删除知识"${item.title}"吗？`, '确认删除', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
+    const { value } = await ElMessageBox.prompt('请输入知识库名称:', '创建知识库', {
+      confirmButtonText: '创建',
       cancelButtonText: '取消',
+      inputPlaceholder: '如：产品文档',
     })
-
-    const response = await fetch(`/api/knowledge/knowledge/${item.id}`, {
-      method: 'DELETE',
-    })
-
-    if (!response.ok) {
-      throw new Error('删除失败')
+    if (!value?.trim()) {
+      ElMessage.warning('请输入名称')
+      return
     }
-
-    ElMessage.success('删除成功')
-    // 重新加载知识列表
-    await loadKnowledge(currentCategory.value!.id)
-    // 重新加载分类列表以更新计数
-    await loadCategories()
-  } catch (error) {
+    const res = await api.knowledge.createRAGFlowDataset({ name: value.trim() })
+    if (res.success) {
+      ElMessage.success('创建成功')
+      await loadDatasets()
+    }
+  } catch (error: any) {
     if (error !== 'cancel') {
-      console.error('删除失败:', error)
-      ElMessage.error('删除失败')
+      ElMessage.error('创建失败')
     }
   }
 }
 
-// 保存知识
-const saveKnowledge = async () => {
-  if (!knowledgeForm.value.title?.trim()) {
-    ElMessage.warning('请输入知识标题')
-    return
-  }
-  if (!knowledgeForm.value.content?.trim()) {
-    ElMessage.warning('请输入知识内容')
-    return
-  }
-
-  savingKnowledge.value = true
-  try {
-    if (editingKnowledge.value) {
-      // 更新
-      const response = await fetch(`/api/knowledge/knowledge/${editingKnowledge.value.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: knowledgeForm.value.title,
-          type: knowledgeForm.value.type,
-          content: knowledgeForm.value.content,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('更新失败')
-      }
-
-      ElMessage.success('更新成功')
-    } else {
-      // 新增
-      const response = await fetch('/api/knowledge/knowledge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category_id: currentCategory.value!.id,
-          title: knowledgeForm.value.title,
-          type: knowledgeForm.value.type,
-          content: knowledgeForm.value.content,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('创建失败')
-      }
-
-      ElMessage.success('添加成功')
-    }
-
-    showAddKnowledge.value = false
-    resetKnowledgeForm()
-    // 重新加载知识列表
-    await loadKnowledge(currentCategory.value!.id)
-    // 重新加载分类列表以更新计数
-    await loadCategories()
-  } catch (error) {
-    console.error('保存失败:', error)
-    ElMessage.error('保存失败')
-  } finally {
-    savingKnowledge.value = false
-  }
-}
-
-// 重置知识表单
-const resetKnowledgeForm = () => {
-  editingKnowledge.value = null
-  knowledgeForm.value = { title: '', type: 'company_intro', content: '' }
-}
-
-// 编辑分类
-const editCategory = (category: Category) => {
-  editingCategory.value = category
-  categoryForm.value = {
-    name: category.name,
-    industry: category.industry || '',
-    description: category.description || '',
-    tagsInput: category.tags?.join(', ') || '',
-    color: category.color,
-  }
-  showCreateCategory.value = true
-}
-
-// 删除分类
-const deleteCategory = async (category: Category) => {
+const deleteDataset = async (dataset: RAGFlowDataset) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除企业分类"${category.name}"吗？删除后关联的知识也将被删除！`,
+      `确定要删除知识库"${dataset.name}"吗？删除后无法恢复。`,
       '确认删除',
-      { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消' }
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
-
-    const response = await fetch(`/api/knowledge/categories/${category.id}`, {
-      method: 'DELETE',
-    })
-
-    if (!response.ok) {
-      throw new Error('删除失败')
+    const res = await api.knowledge.deleteRAGFlowDataset(dataset.id)
+    if (res.success) {
+      ElMessage.success('删除成功')
+      await loadDatasets()
     }
-
-    ElMessage.success('删除成功')
-    // 重新加载分类列表
-    await loadCategories()
-  } catch (error) {
+  } catch (error: any) {
     if (error !== 'cancel') {
-      console.error('删除失败:', error)
       ElMessage.error('删除失败')
     }
   }
 }
 
-// 保存分类
-const saveCategory = async () => {
-  if (!categoryForm.value.name?.trim()) {
-    ElMessage.warning('请输入企业名称')
-    return
-  }
+const viewDataset = async (dataset: RAGFlowDataset) => {
+  activeDataset.value = dataset
+  showDocDrawer.value = true
+  await loadDocuments(dataset.id)
+}
 
-  saving.value = true
+// ==================== 文档操作 ====================
+const loadDocuments = async (datasetId: string) => {
+  docsLoading.value = true
   try {
-    const tags = categoryForm.value.tagsInput
-      ? categoryForm.value.tagsInput.split(',').map(t => t.trim()).filter(t => t)
-      : []
-
-    if (editingCategory.value) {
-      // 更新
-      const response = await fetch(`/api/knowledge/categories/${editingCategory.value.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: categoryForm.value.name,
-          industry: categoryForm.value.industry,
-          description: categoryForm.value.description,
-          tags: tags.join(', '),
-          color: categoryForm.value.color,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('更新失败')
-      }
-
-      ElMessage.success('更新成功')
-    } else {
-      // 新增
-      const response = await fetch('/api/knowledge/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: categoryForm.value.name,
-          industry: categoryForm.value.industry,
-          description: categoryForm.value.description,
-          tags: tags.join(', '),
-          color: categoryForm.value.color,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('创建失败')
-      }
-
-      ElMessage.success('创建成功')
+    const res = await api.knowledge.getRAGFlowDocuments(datasetId, { page: 1, limit: 100 })
+    if (res.success && res.data) {
+      documents.value = res.data.items || []
     }
-
-    showCreateCategory.value = false
-    resetCategoryForm()
-    // 重新加载分类列表
-    await loadCategories()
-  } catch (error) {
-    console.error('保存失败:', error)
-    ElMessage.error('保存失败')
+  } catch {
+    ElMessage.error('加载文档失败')
   } finally {
-    saving.value = false
+    docsLoading.value = false
   }
 }
 
-// 重置分类表单
-const resetCategoryForm = () => {
-  editingCategory.value = null
-  categoryForm.value = {
-    name: '',
-    industry: '',
-    description: '',
-    tagsInput: '',
-    color: '#6366f1',
+const deleteDocument = async (doc: RAGFlowDocument) => {
+  if (!activeDataset.value) return
+  try {
+    await ElMessageBox.confirm(`确定要删除文档"${doc.name}"吗？`, '确认删除', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+    })
+    const res = await api.knowledge.deleteRAGFlowDocument(activeDataset.value.id, doc.id)
+    if (res.success) {
+      ElMessage.success('删除成功')
+      await loadDocuments(activeDataset.value.id)
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
   }
 }
 
-// 格式化时间
-const formatTime = (dateStr: string) => {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+const parseDocument = async (doc: RAGFlowDocument) => {
+  if (!activeDataset.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要重新解析文档"${doc.name}"吗？这将重新分块文档内容。`,
+      '确认解析',
+      { type: 'warning', confirmButtonText: '解析', cancelButtonText: '取消' }
+    )
+    const res = await api.knowledge.parseRAGFlowDocument(activeDataset.value.id, doc.id)
+    if (res.success) {
+      ElMessage.success('解析任务已提交')
+      await loadDocuments(activeDataset.value.id)
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('解析失败')
+    }
+  }
+}
 
-  if (days === 0) return '今天更新'
-  if (days === 1) return '昨天更新'
-  if (days < 7) return `${days}天前更新`
-  return date.toLocaleDateString('zh-CN')
+const previewDocument = (doc: RAGFlowDocument) => {
+  previewDoc.value = doc
+  showPreview.value = true
+}
+
+// ==================== 上传 ====================
+const openUploadDialog = (dataset: RAGFlowDataset) => {
+  uploadDatasetId.value = dataset.id
+  uploadFiles.value = []
+  showUploadDialog.value = true
+}
+
+const handleUploadChange = async (uploadOptions: any) => {
+  const { file } = uploadOptions
+  uploadLoading.value = true
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file.raw)
+    formData.append('title', file.name)
+
+    await api.knowledge.uploadRAGFlowDocument(uploadDatasetId.value, formData)
+    ElMessage.success(`文件 "${file.name}" 上传成功`)
+    showUploadDialog.value = false
+
+    // 刷新文档列表
+    if (activeDataset.value && activeDataset.value.id === uploadDatasetId.value) {
+      await loadDocuments(uploadDatasetId.value)
+    }
+    // 刷新数据集列表（更新文档计数）
+    await loadDatasets()
+  } catch {
+    ElMessage.error('上传失败')
+  } finally {
+    uploadLoading.value = false
+    uploadFiles.value = []
+  }
+}
+
+// ==================== 工具函数 ====================
+const getDocStatusLabel = (status: string): string => {
+  const map: Record<string, string> = {
+    'UNSTART': '等待中', '0': '等待中',
+    'RUNNING': '解析中', '2': '解析中',
+    'DONE': '已完成', '3': '已完成', 'COMPLETE': '已完成',
+    'CANCEL': '已取消',
+    'FAIL': '失败', '4': '失败',
+  }
+  return map[status] || '未知'
+}
+
+const getDocStatusType = (status: string): string => {
+  const map: Record<string, string> = {
+    'UNSTART': 'info', '0': 'info',
+    'RUNNING': 'warning', '2': 'warning',
+    'DONE': 'success', '3': 'success', 'COMPLETE': 'success',
+    'CANCEL': 'info',
+    'FAIL': 'danger', '4': 'danger',
+  }
+  return map[status] || 'info'
+}
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 // ==================== 生命周期 ====================
 onMounted(() => {
-  loadCategories()
-  checkRAGFlowStatus()
+  loadRAGFlowStatus()
+  loadDatasets()
 })
-
-// 检查RAGFlow连接状态
-const checkRAGFlowStatus = async () => {
-  try {
-    // 尝试调用API检查RAGFlow状态
-    const response = await fetch('/api/knowledge/categories')
-    if (!response.ok) {
-      console.warn('RAGFlow可能未连接')
-    }
-  } catch (error) {
-    console.error('RAGFlow状态检查失败:', error)
-  }
-}
 </script>
 
 <style scoped lang="scss">
@@ -765,7 +530,6 @@ const checkRAGFlowStatus = async () => {
   background: linear-gradient(135deg, #f8f9fc 0%, #f0f2f8 100%);
 }
 
-// 头部
 .page-header {
   display: flex;
   align-items: center;
@@ -790,10 +554,7 @@ const checkRAGFlowStatus = async () => {
       justify-content: center;
       color: white;
 
-      svg {
-        width: 26px;
-        height: 26px;
-      }
+      svg { width: 26px; height: 26px; }
     }
 
     .page-title {
@@ -809,10 +570,40 @@ const checkRAGFlowStatus = async () => {
       color: #9ca3af;
     }
   }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
 }
 
-// 企业分类区域
-.categories-section {
+.ragflow-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #fef2f2;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #dc2626;
+
+  &.connected {
+    background: #f0fdf4;
+    color: #16a34a;
+
+    .status-dot { background: #16a34a; }
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #dc2626;
+  }
+}
+
+.ragflow-section {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -834,398 +625,235 @@ const checkRAGFlowStatus = async () => {
       font-weight: 600;
       color: #1a1f36;
     }
+
+    .section-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
   }
 }
 
-.categories-grid {
+.datasets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 20px;
   flex: 1;
   overflow-y: auto;
   padding: 4px;
 }
 
-// 企业分类卡片
-.category-card {
-  background: #f9fafb;
-  border-radius: 16px;
-  padding: 20px;
-  border: 2px solid transparent;
+.dataset-card {
   display: flex;
-  flex-direction: column;
-  transition: all 0.3s ease;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 14px;
+  border: 2px solid transparent;
   cursor: pointer;
+  transition: all 0.3s ease;
 
   &:hover {
     border-color: #8b5cf6;
-    box-shadow: 0 8px 24px rgba(139, 92, 246, 0.15);
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.12);
     transform: translateY(-2px);
   }
 
-  .card-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 16px;
-
-    .company-info {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-
-      .company-avatar {
-        width: 52px;
-        height: 52px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        font-size: 20px;
-        color: white;
-      }
-
-      .company-details {
-        .company-name {
-          margin: 0 0 4px 0;
-          font-size: 16px;
-          font-weight: 600;
-          color: #1a1f36;
-        }
-
-        .company-industry {
-          font-size: 12px;
-          color: #9ca3af;
-        }
-      }
-    }
-
-    .more-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #9ca3af;
-      transition: all 0.2s;
-
-      &:hover {
-        background: rgba(0, 0, 0, 0.04);
-        color: #6b7280;
-      }
-    }
-  }
-
-  .card-body {
-    flex: 1;
-
-    .company-desc {
-      font-size: 13px;
-      color: #6b7280;
-      margin: 0 0 16px 0;
-      line-height: 1.6;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-
-    .knowledge-stats {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 14px;
-
-      .stat-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        color: #6b7280;
-
-        svg {
-          color: #8b5cf6;
-        }
-      }
-    }
-
-    .card-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-
-      .tag {
-        padding: 4px 10px;
-        background: rgba(139, 92, 246, 0.1);
-        border-radius: 6px;
-        font-size: 11px;
-        color: #7c3aed;
-      }
-    }
-  }
-
-  .card-footer {
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    .update-time {
-      font-size: 11px;
-      color: #9ca3af;
-    }
-
-    .action-btn {
-      padding: 6px 14px;
-      background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-      border: none;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      color: white;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
-      }
-    }
-  }
-}
-
-// 空状态
-.empty-state {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 80px 20px;
-
-  .empty-icon {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    background: rgba(139, 92, 246, 0.1);
+  .dataset-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 20px;
+    color: white;
+    flex-shrink: 0;
 
-    svg {
-      width: 36px;
-      height: 36px;
-      color: #8b5cf6;
-    }
+    svg { width: 24px; height: 24px; }
   }
 
-  h3 {
-    margin: 0 0 8px 0;
-    font-size: 18px;
-    font-weight: 500;
-    color: #1a1f36;
-  }
-
-  p {
-    margin: 0 0 24px 0;
-    font-size: 14px;
-    color: #9ca3af;
-  }
-}
-
-// 知识抽屉
-.drawer-content {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-
-  .drawer-header {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-
-    .search-box {
-      flex: 1;
-    }
-  }
-
-  .knowledge-list {
+  .dataset-info {
     flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 4px;
-  }
-}
+    min-width: 0;
 
-.knowledge-item {
-  background: #f9fafb;
-  border-radius: 12px;
-  padding: 16px;
-  border: 1px solid #e5e7eb;
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: #8b5cf6;
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
-  }
-
-  .item-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-
-    .item-title {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 500;
-      color: #1a1f36;
-    }
-
-    .item-more {
-      width: 24px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #9ca3af;
-      cursor: pointer;
-      border-radius: 4px;
-
-      &:hover {
-        background: rgba(0, 0, 0, 0.04);
-      }
-    }
-  }
-
-  .item-content {
-    margin: 0 0 12px 0;
-    font-size: 13px;
-    color: #6b7280;
-    line-height: 1.6;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .item-meta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .item-type {
-      padding: 3px 8px;
-      background: rgba(139, 92, 246, 0.1);
-      border-radius: 4px;
-      font-size: 11px;
-      color: #7c3aed;
-    }
-
-    .item-time {
-      font-size: 11px;
-      color: #9ca3af;
-    }
-  }
-}
-
-// 表单提示
-.form-tip {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-// 颜色选择器
-.color-picker {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-
-  .color-option {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    cursor: pointer;
-    border: 3px solid transparent;
-    transition: all 0.2s;
-
-    &:hover {
-      transform: scale(1.1);
-    }
-
-    &.active {
-      border-color: #1a1f36;
-      box-shadow: 0 0 0 2px white, 0 0 0 4px #8b5cf6;
-    }
-  }
-}
-
-// 滚动条
-.categories-grid::-webkit-scrollbar,
-.knowledge-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.categories-grid::-webkit-scrollbar-track,
-.knowledge-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.categories-grid::-webkit-scrollbar-thumb,
-.knowledge-list::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
-
-  &:hover {
-    background: #9ca3af;
-  }
-}
-
-// 对话框样式
-:deep(.category-dialog),
-:deep(.knowledge-dialog) {
-  .el-dialog {
-    border-radius: 16px;
-  }
-
-  .el-dialog__header {
-    padding: 20px 24px 10px;
-    border-bottom: 1px solid #e5e7eb;
-
-    .el-dialog__title {
+    .dataset-name {
+      margin: 0 0 6px 0;
       font-size: 16px;
       font-weight: 600;
       color: #1a1f36;
     }
-  }
 
-  .el-dialog__body {
-    padding: 20px 24px;
-  }
+    .dataset-desc {
+      margin: 0 0 12px 0;
+      font-size: 13px;
+      color: #9ca3af;
+      line-height: 1.4;
+    }
 
-  .el-dialog__footer {
-    padding: 16px 24px 20px;
-    border-top: 1px solid #e5e7eb;
-  }
-
-  .el-form-item__label {
-    font-weight: 500;
-    color: #374151;
-  }
-
-  .el-input__wrapper,
-  .el-textarea__inner {
-    border-radius: 10px;
-
-    &.is-focus {
-      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    .dataset-stats {
+      display: flex;
+      gap: 12px;
     }
   }
+
+  .dataset-more {
+    font-size: 18px;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+
+    &:hover { background: #e5e7eb; color: #6b7280; }
+  }
+}
+
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: white;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #6b7280;
+
+  svg { color: #9ca3af; }
+}
+
+// 文档抽屉
+.doc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 12px;
+  transition: all 0.2s;
+
+  &:hover { background: #f3f4f6; }
+
+  .doc-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    flex-shrink: 0;
+
+    svg { width: 20px; height: 20px; }
+  }
+
+  .doc-info {
+    flex: 1;
+    min-width: 0;
+
+    .doc-name {
+      margin: 0 0 6px 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: #1a1f36;
+    }
+
+    .doc-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .doc-size, .doc-type {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+  }
+
+  .doc-more {
+    font-size: 18px;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+
+    &:hover { background: #d1d5db; color: #6b7280; }
+  }
+}
+
+// 上传
+.upload-area {
+  :deep(.el-upload-dragger) {
+    padding: 40px 20px;
+    border-radius: 12px;
+    border: 2px dashed #d1d5db;
+    background: #f9fafb;
+
+    &:hover { border-color: #8b5cf6; }
+  }
+
+  .upload-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+
+    .upload-icon { font-size: 48px; color: #9ca3af; }
+
+    .upload-text {
+      font-size: 14px;
+      color: #6b7280;
+
+      em { color: #8b5cf6; font-style: normal; }
+    }
+
+    .upload-tip { font-size: 12px; color: #9ca3af; }
+  }
+}
+
+// 文档预览
+.document-preview {
+  .preview-info { margin-bottom: 20px; }
+
+  .preview-chunks {
+    margin-top: 20px;
+
+    h4 { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1a1f36; }
+  }
+
+  .preview-not-ready { margin-top: 20px; }
+}
+
+// 滚动条
+.datasets-grid::-webkit-scrollbar,
+.doc-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.datasets-grid::-webkit-scrollbar-track,
+.doc-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.datasets-grid::-webkit-scrollbar-thumb,
+.doc-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+
+  &:hover { background: #9ca3af; }
 }
 </style>

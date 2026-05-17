@@ -8,10 +8,13 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.js",
+    "dev:h5": "vite --mode h5 --open",
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "build:h5": "vite build --mode h5",
     "preview": "vite preview",
+    "preview:h5": "vite preview --mode h5 --outDir dist-h5",
     "type-check": "vue-tsc --noEmit",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
     "vite:dev": "vite",
@@ -36,6 +39,7 @@
     "markdown-it": "^14.1.0",
     "pinia": "^2.1.7",
     "superpower": "^0.0.2",
+    "vant": "^4.9.24",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },

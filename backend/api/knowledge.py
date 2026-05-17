@@ -1212,17 +1212,17 @@ async def list_ragflow_datasets(
         end = start + limit
         datasets = all_datasets[start:end]
 
-        # 格式化输出
+        # 格式化输出 — 字段名对齐前端 RAGFlowDataset 接口
         formatted_datasets = []
         for ds in datasets:
             formatted_datasets.append({
                 "id": ds.get("id"),
                 "name": ds.get("name"),
                 "description": ds.get("description", ""),
-                "chunk_count": ds.get("chunk_count", 0),
-                "document_count": ds.get("document_count", 0),
-                "create_time": ds.get("create_time"),
-                "update_time": ds.get("update_time")
+                "chunk_count": ds.get("chunk_count", ds.get("chunk_num", 0)),
+                "document_count": ds.get("document_count", ds.get("document_num", 0)),
+                "created_at": ds.get("create_time", ds.get("create_date", "")),
+                "updated_at": ds.get("update_time", ds.get("update_date", "")),
             })
 
         pages = (total + limit - 1) // limit if total > 0 else 1
@@ -1325,10 +1325,10 @@ async def get_ragflow_dataset(dataset_id: str):
                 "id": dataset.get("id"),
                 "name": dataset.get("name"),
                 "description": dataset.get("description", ""),
-                "chunk_count": dataset.get("chunk_count", 0),
-                "document_count": dataset.get("document_count", 0),
-                "create_time": dataset.get("create_time"),
-                "update_time": dataset.get("update_time")
+                "chunk_count": dataset.get("chunk_count", dataset.get("chunk_num", 0)),
+                "document_count": dataset.get("document_count", dataset.get("document_num", 0)),
+                "created_at": dataset.get("create_time", dataset.get("create_date", "")),
+                "updated_at": dataset.get("update_time", dataset.get("update_date", "")),
             },
             message="获取知识库详情成功"
         )
@@ -1462,12 +1462,13 @@ async def list_ragflow_documents(
         if result.get("code") != 0:
             raise HTTPException(status_code=500, detail=result.get("message", "获取文档列表失败"))
 
-        # RAGFlow 返回格式: {code: 0, data: {list: [], total: n}}
+        # RAGFlow 返回格式: {code: 0, data: {docs: [], total: n}}
+        # 兼容多种可能的字段名: docs / list / data
         data = result.get("data", {})
-        all_docs = data.get("list", []) or data.get("data", []) or []
-        total = data.get("total", len(all_docs))
+        all_docs = data.get("docs", data.get("list", data.get("data", []))) or []
+        total = data.get("total", data.get("total_datasets", len(all_docs)))
 
-        # 格式化输出
+        # 格式化输出 — 字段名对齐前端 RAGFlowDocument 接口
         formatted_docs = []
         for doc in all_docs:
             formatted_docs.append({
@@ -1475,11 +1476,12 @@ async def list_ragflow_documents(
                 "name": doc.get("name"),
                 "size": doc.get("size", 0),
                 "type": doc.get("type", "unknown"),
-                "status": doc.get("run", "UNSTART"),
+                "run_status": doc.get("run", doc.get("status", "0")),
                 "chunk_count": doc.get("chunk_count", 0),
+                "chunk_method": doc.get("chunk_method", doc.get("parser_id", "naive")),
                 "progress": doc.get("progress", 0),
-                "create_time": doc.get("create_time"),
-                "update_time": doc.get("update_time")
+                "created_at": doc.get("create_time", doc.get("create_date", "")),
+                "updated_at": doc.get("update_time", doc.get("update_date", "")),
             })
 
         pages = (total + limit - 1) // limit if total > 0 else 1
@@ -1532,14 +1534,6 @@ async def get_ragflow_document(dataset_id: str, document_id: str):
 
         doc = result.get("data", {})
 
-        # 构建预览 URL (RAGFlow 通常通过特定路径访问文档)
-        preview_url = None
-        file_type = doc.get("type", "").lower()
-        if file_type in ["pdf", "doc", "docx", "txt", "md"]:
-            # 构建 RAGFlow 文档预览 URL
-            base_url = ragflow_client.base_url
-            preview_url = f"{base_url}/document/preview/{document_id}"
-
         return ApiResponse(
             success=True,
             data={
@@ -1547,12 +1541,12 @@ async def get_ragflow_document(dataset_id: str, document_id: str):
                 "name": doc.get("name"),
                 "size": doc.get("size", 0),
                 "type": doc.get("type", "unknown"),
-                "status": doc.get("run", "UNSTART"),
+                "run_status": doc.get("run", doc.get("status", "0")),
                 "chunk_count": doc.get("chunk_count", 0),
+                "chunk_method": doc.get("chunk_method", doc.get("parser_id", "naive")),
                 "progress": doc.get("progress", 0),
-                "create_time": doc.get("create_time"),
-                "update_time": doc.get("update_time"),
-                "preview_url": preview_url
+                "created_at": doc.get("create_time", doc.get("create_date", "")),
+                "updated_at": doc.get("update_time", doc.get("update_date", "")),
             },
             message="获取文档详情成功"
         )

@@ -74,17 +74,19 @@ class RAGFlowClient:
             logger.error(f"创建知识库失败: {e}")
             return {"code": -1, "message": str(e)}
 
-    def list_datasets(self, name: str = None) -> Dict:
+    def list_datasets(self, name: str = None, page: int = 1, page_size: int = 100) -> Dict:
         """
         列出知识库
 
         Args:
             name: 可选，按名称筛选
+            page: 页码
+            page_size: 每页数量
 
         Returns:
             知识库列表
         """
-        params = {"page": 1, "page_size": 100}
+        params = {"page": page, "page_size": page_size}
         if name:
             params["name"] = name
 
