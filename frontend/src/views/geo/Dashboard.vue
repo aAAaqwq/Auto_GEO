@@ -194,60 +194,63 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* Geo Dashboard — Warm Studio */
 .monitor-page {
-  padding: 24px;
-  color: #fff;
+  padding: 24px 28px;
+  color: var(--text-body);
+  background: transparent;
 }
 
-/* 顶部卡片 */
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 24px;
 
   .card {
-    background: #1e1e1e;
-    padding: 20px;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.05);
-    
-    .card-title { font-size: 14px; color: #888; margin-bottom: 8px; }
-    .card-value { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-    .card-desc { font-size: 12px; color: #666; }
-    
-    .highlight { color: #409eff; }
-    .success { color: #67c23a; }
+    background: var(--surface-raised);
+    padding: 22px 24px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-thin);
+    transition: border-color var(--duration-fast) var(--ease-out);
+
+    &:hover { border-color: var(--border-soft); }
+
+    .card-title { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; letter-spacing: 0.02em; }
+    .card-value { font-family: var(--font-display); font-size: 30px; font-weight: 700; color: var(--text-head); margin-bottom: 4px; line-height: 1; }
+    .card-desc { font-size: 12px; color: var(--text-muted); }
+
+    .highlight { color: var(--accent); }
+    .success { color: var(--success); }
   }
 }
 
-/* 图表容器 */
 .charts-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 24px;
 }
 
 .chart-box {
-  background: #1e1e1e;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid rgba(255,255,255,0.05);
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  border: 1px solid var(--border-thin);
+  transition: border-color var(--duration-fast);
+
+  &:hover { border-color: var(--border-soft); }
 
   .chart-title {
-    font-size: 16px;
+    font-family: var(--font-display);
+    font-size: 15px;
     margin-bottom: 20px;
     font-weight: 600;
+    color: var(--text-head);
   }
 
-  .chart {
-    height: 300px;
-    width: 100%;
-  }
-  
-  &.full-width {
-    width: 100%;
-  }
+  .chart { height: 300px; width: 100%; }
+
+  &.full-width { width: 100%; }
 }
 </style>

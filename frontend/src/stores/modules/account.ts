@@ -1,10 +1,11 @@
 /**
- * 账号状态管理
- * 我用这个来管理账号状态！
+ * 账号状态管理 — 全面增强版
+ * 统一使用 accountApi（axios 实例自动注入 Token）
  */
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { accountApi } from '@/services/api'
 
 export interface Account {
   id: number
@@ -14,6 +15,25 @@ export interface Account {
   status: number
   last_auth_time?: string
   remark?: string
+  user_id?: number
+  group_id?: number | null
+  tags?: string[]
+  health_score?: number
+  last_check_time?: string
+  auth_expires_at?: string
+  browser_type?: string
+  adspower_profile_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AccountGroup {
+  id: number
+  name: string
+  icon?: string
+  color: string
+  sort_order: number
+  account_count: number
   created_at: string
   updated_at: string
 }
@@ -23,6 +43,9 @@ export const useAccountStore = defineStore('account', () => {
 
   /** 账号列表 */
   const accounts = ref<Account[]>([])
+
+  /** 分组列表 */
+  const groups = ref<AccountGroup[]>([])
 
   /** 当前选中的账号 */
   const selectedAccountIds = ref<number[]>([])
@@ -52,31 +75,35 @@ export const useAccountStore = defineStore('account', () => {
     return accounts.value.filter(acc => acc.status === 1)
   })
 
+  /** 健康度较低的账号（需要关注） */
+  const warningAccounts = computed(() => {
+    return accounts.value.filter(acc => acc.health_score !== undefined && acc.health_score < 60)
+  })
+
   /** 获取账号总数 */
   const totalCount = computed(() => accounts.value.length)
 
   /** 获取已授权账号数 */
   const authorizedCount = computed(() => authorizedAccounts.value.length)
 
-  // ==================== 操作 ====================
+  // ==================== 账号 CRUD ====================
 
   /**
-   * 加载账号列表
-   * 我从后端获取账号列表！
+   * 加载账号列表（自动带 Token）
    */
-  async function loadAccounts(platform?: string) {
+  async function loadAccounts(params?: { platform?: string; status?: number; group_id?: number; tag?: string; keyword?: string }) {
     loading.value = true
     error.value = null
 
     try {
-      const url = platform ? `/api/accounts?platform=${platform}` : '/api/accounts'
-      const response = await fetch(url)
-      const data = await response.json()
+      const data: any = await accountApi.getList(params)
 
-      if (data.success !== false) {
-        accounts.value = data.data || data || []
+      if (data && data.items) {
+        accounts.value = data.items
+      } else if (Array.isArray(data)) {
+        accounts.value = data
       } else {
-        error.value = data.message || '加载失败'
+        accounts.value = []
       }
     } catch (e: any) {
       error.value = e.message || '网络错误'
@@ -93,18 +120,12 @@ export const useAccountStore = defineStore('account', () => {
     error.value = null
 
     try {
-      const response = await fetch('/api/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(accountData),
-      })
-      const data = await response.json()
-
-      if (data.success !== false) {
-        accounts.value.push(data.data)
-        return { success: true, data: data.data }
+      const data: any = await accountApi.create(accountData)
+      if (data && !data.success === false) {
+        accounts.value.push(data)
+        return { success: true, data }
       } else {
-        error.value = data.message || '创建失败'
+        error.value = data?.message || '创建失败'
         return { success: false, message: error.value }
       }
     } catch (e: any) {
@@ -123,21 +144,16 @@ export const useAccountStore = defineStore('account', () => {
     error.value = null
 
     try {
-      const response = await fetch(`/api/accounts/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(accountData),
-      })
-      const data = await response.json()
-
-      if (data.success !== false) {
+      const data: any = await accountApi.update(id, accountData)
+      const updated = data?.data || data
+      if (updated) {
         const index = accounts.value.findIndex(acc => acc.id === id)
         if (index !== -1) {
-          accounts.value[index] = { ...accounts.value[index], ...data.data }
+          accounts.value[index] = { ...accounts.value[index], ...updated }
         }
-        return { success: true, data: data.data }
+        return { success: true, data: updated }
       } else {
-        error.value = data.message || '更新失败'
+        error.value = data?.message || '更新失败'
         return { success: false, message: error.value }
       }
     } catch (e: any) {
@@ -156,17 +172,13 @@ export const useAccountStore = defineStore('account', () => {
     error.value = null
 
     try {
-      const response = await fetch(`/api/accounts/${id}`, {
-        method: 'DELETE',
-      })
-      const data = await response.json()
-
-      if (data.success !== false) {
+      const data: any = await accountApi.delete(id)
+      if (data?.success !== false) {
         accounts.value = accounts.value.filter(acc => acc.id !== id)
         selectedAccountIds.value = selectedAccountIds.value.filter(sid => sid !== id)
         return { success: true }
       } else {
-        error.value = data.message || '删除失败'
+        error.value = data?.message || '删除失败'
         return { success: false, message: error.value }
       }
     } catch (e: any) {
@@ -177,52 +189,35 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
+  // ==================== 授权流程 ====================
+
   /**
    * 开始授权
-   *
-   * 我修改了：现在授权成功后会自动创建账号记录！
    */
   async function startAuth(platform: string, accountId?: number, accountName?: string) {
     try {
-      console.log('[startAuth] 开始授权:', { platform, accountId, accountName })
-      const response = await fetch('/api/accounts/auth/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform,
-          account_id: accountId,
-          account_name: accountName
-        }),
+      const data: any = await accountApi.startAuth({
+        platform,
+        account_id: accountId,
+        account_name: accountName,
       })
-      console.log('[startAuth] 响应状态:', response.status, response.statusText)
-      const data = await response.json()
-      console.log('[startAuth] 响应数据:', data)
 
-      if (data.success !== false) {
-        // 后端Playwright已经打开了浏览器窗口，不需要前端再打开
-        // 我注释掉多余的electronAPI调用
-        // if (window.electronAPI) {
-        //   window.electronAPI.startAuth(platform, getAuthUrl(platform))
-        // }
+      if (data?.task_id) {
         return { success: true, taskId: data.task_id }
       } else {
-        return { success: false, message: data.message || '授权启动失败' }
+        return { success: false, message: data?.message || '授权启动失败' }
       }
     } catch (e: any) {
-      console.error('[startAuth] 请求失败:', e)
       return { success: false, message: e.message || '网络错误' }
     }
   }
 
   /**
    * 检查授权状态
-   *
-   * 我修改了：现在返回 account_id，授权成功后自动刷新列表！
    */
   async function checkAuthStatus(taskId: string) {
     try {
-      const response = await fetch(`/api/accounts/auth/status/${taskId}`)
-      const data = await response.json()
+      const data: any = await accountApi.getAuthStatus(taskId)
 
       // 如果授权成功，自动刷新账号列表
       if (data.status === 'success' && data.account_id) {
@@ -238,20 +233,119 @@ export const useAccountStore = defineStore('account', () => {
   /**
    * 保存授权结果
    */
-  async function saveAuth(taskId: string) {
+  async function saveAuth(taskId: string, accountId: number) {
     try {
-      const response = await fetch(`/api/accounts/auth/save/${taskId}`, {
-        method: 'POST',
-      })
-      const data = await response.json()
-      if (data.success !== false) {
-        await loadAccounts() // 重新加载账号列表
+      const data: any = await accountApi.saveAuth(taskId, accountId)
+      if (data?.success !== false) {
+        await loadAccounts()
       }
       return data
     } catch (e: any) {
       return { success: false, message: e.message }
     }
   }
+
+  // ==================== 分组管理 ====================
+
+  /**
+   * 加载分组列表
+   */
+  async function loadGroups() {
+    try {
+      const data: any = await accountApi.getGroups()
+      if (data?.success && data.data) {
+        groups.value = data.data
+      }
+    } catch (e: any) {
+      console.error('加载分组失败:', e)
+    }
+  }
+
+  /**
+   * 创建分组
+   */
+  async function createGroup(name: string, color?: string) {
+    try {
+      const data: any = await accountApi.createGroup({ name, color })
+      if (data?.success) {
+        await loadGroups()
+        return { success: true }
+      }
+      return { success: false, message: data?.message }
+    } catch (e: any) {
+      return { success: false, message: e.message }
+    }
+  }
+
+  /**
+   * 删除分组
+   */
+  async function deleteGroup(id: number) {
+    try {
+      const data: any = await accountApi.deleteGroup(id)
+      if (data?.success) {
+        await loadGroups()
+        await loadAccounts()
+        return { success: true }
+      }
+      return { success: false }
+    } catch (e: any) {
+      return { success: false, message: e.message }
+    }
+  }
+
+  // ==================== 批量操作 ====================
+
+  /**
+   * 批量更新状态
+   */
+  async function batchUpdateStatus(accountIds: number[], status: number) {
+    try {
+      const data: any = await accountApi.batchStatus(accountIds, status)
+      if (data?.success) {
+        await loadAccounts()
+        return { success: true }
+      }
+      return { success: false }
+    } catch (e: any) {
+      return { success: false, message: e.message }
+    }
+  }
+
+  /**
+   * 批量删除
+   */
+  async function batchDelete(accountIds: number[]) {
+    try {
+      const data: any = await accountApi.batchDelete(accountIds)
+      if (data?.success) {
+        accounts.value = accounts.value.filter(acc => !accountIds.includes(acc.id))
+        selectedAccountIds.value = selectedAccountIds.value.filter(id => !accountIds.includes(id))
+        return { success: true }
+      }
+      return { success: false }
+    } catch (e: any) {
+      return { success: false, message: e.message }
+    }
+  }
+
+  /**
+   * 批量移动分组
+   */
+  async function batchMoveGroup(accountIds: number[], groupId: number | null) {
+    try {
+      const data: any = await accountApi.batchMoveGroup(accountIds, groupId)
+      if (data?.success) {
+        await loadAccounts()
+        return { success: true }
+      }
+      return { success: false }
+    } catch (e: any) {
+      return { success: false, message: e.message }
+    }
+  }
+
+  // ==================== 选择操作 ====================
 
   /**
    * 切换账号选中状态
@@ -278,12 +372,10 @@ export const useAccountStore = defineStore('account', () => {
     )
 
     if (allSelected) {
-      // 取消全选
       selectedAccountIds.value = selectedAccountIds.value.filter(
         id => !targetAccounts.some(acc => acc.id === id)
       )
     } else {
-      // 全选
       targetAccounts.forEach(acc => {
         if (!selectedAccountIds.value.includes(acc.id)) {
           selectedAccountIds.value.push(acc.id)
@@ -315,6 +407,7 @@ export const useAccountStore = defineStore('account', () => {
   return {
     // 状态
     accounts,
+    groups,
     selectedAccountIds,
     loading,
     error,
@@ -322,17 +415,32 @@ export const useAccountStore = defineStore('account', () => {
     // 计算属性
     accountsByPlatform,
     authorizedAccounts,
+    warningAccounts,
     totalCount,
     authorizedCount,
 
-    // 操作
+    // 账号 CRUD
     loadAccounts,
     createAccount,
     updateAccount,
     deleteAccount,
+
+    // 授权
     startAuth,
     checkAuthStatus,
     saveAuth,
+
+    // 分组
+    loadGroups,
+    createGroup,
+    deleteGroup,
+
+    // 批量操作
+    batchUpdateStatus,
+    batchDelete,
+    batchMoveGroup,
+
+    // 选择
     toggleAccountSelection,
     toggleSelectAll,
     clearSelection,

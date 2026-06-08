@@ -4,11 +4,15 @@
 处理AI平台的授权流程
 """
 
+import time
+
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
 from loguru import logger
+
+import bcrypt
 
 from backend.database.models import User, Project
 from backend.database import get_db
@@ -78,7 +82,13 @@ async def start_auth_flow(request: Request, db: Session = Depends(get_db)):
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             # 创建默认用户
-            user = User(id=user_id, username=f"user_{user_id}", email=f"user_{user_id}@example.com")
+            default_password = bcrypt.hashpw("autogeo123".encode(), bcrypt.gensalt()).decode()
+            user = User(
+                id=user_id,
+                username=f"user_{user_id}",
+                email=f"user_{user_id}@example.com",
+                password_hash=default_password,
+            )
             db.add(user)
             db.commit()
             db.refresh(user)
@@ -117,6 +127,7 @@ async def start_auth_flow(request: Request, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"授权流程异常: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
 
@@ -298,9 +309,9 @@ async def get_session_status(
 
 @router.delete("/session")
 async def delete_session(
-    user_id: int = Body(..., description="用户ID"),
-    project_id: int = Body(..., description="项目ID"),
-    platform: str = Body(..., description="平台标识"),
+    user_id: int = Query(..., description="用户ID"),
+    project_id: int = Query(..., description="项目ID"),
+    platform: str = Query(..., description="平台标识"),
 ):
     """
     删除会话
@@ -325,6 +336,95 @@ async def delete_session(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+class SyncCookiesRequest(BaseModel):
+    user_id: int = 1
+    project_id: int = 1
+    platform: str
+    cookies: list = []
+    local_storage: dict = {}
+    fingerprint: dict = {}
+
+
+@router.post("/sync-cookies")
+async def sync_cookies_from_extension(request: SyncCookiesRequest):
+    """
+    接收浏览器扩展同步的 Cookie + LocalStorage + 指纹数据
+
+    浏览器扩展通过 chrome.cookies API 获取所有 Cookie（含 HttpOnly），
+    并通过此接口发送到后端加密存储。
+    """
+    try:
+        result = await secure_session_manager.sync_cookies_from_extension(
+            user_id=request.user_id,
+            project_id=request.project_id,
+            platform=request.platform,
+            cookies=request.cookies,
+            local_storage=request.local_storage,
+            fingerprint=request.fingerprint,
+        )
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "同步失败"),
+                headers={"X-Error-Code": result.get("error_code", "SYNC_FAILED")},
+            )
+
+        return JSONResponse(content=result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cookie同步异常: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+# 全局存储：扩展 ID（浏览器扩展启动时注册）
+_extension_id: str = ""
+# 同步请求：前端点"刷新状态"时设为 True，扩展轮询后设为 False
+_sync_requested: bool = False
+_sync_request_time: float = 0.0
+
+
+@router.post("/register-extension")
+async def register_extension_id(request: Request):
+    """浏览器扩展启动时注册自己的 ID"""
+    global _extension_id
+    try:
+        body = await request.json()
+        _extension_id = body.get("extension_id", "")
+        logger.info(f"扩展 ID 已注册: {_extension_id}")
+        return JSONResponse(content={"success": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/extension-id")
+async def get_extension_id():
+    """前端查询已注册的扩展 ID"""
+    return JSONResponse(content={"success": True, "extension_id": _extension_id})
+
+
+@router.get("/request-sync")
+async def request_sync():
+    """前端点"刷新状态"时调用，设置同步请求标记"""
+    global _sync_requested, _sync_request_time
+    _sync_requested = True
+    _sync_request_time = time.time()
+    logger.info("收到前端同步请求")
+    return JSONResponse(content={"success": True, "message": "同步请求已记录"})
+
+
+@router.get("/sync-requests")
+async def get_sync_requests(since: float = 0):
+    """扩展轮询此接口，检查是否有待处理的同步请求"""
+    global _sync_requested
+    if _sync_requested and _sync_request_time > since:
+        _sync_requested = False
+        return JSONResponse(content={"sync_all": True, "time": _sync_request_time})
+    return JSONResponse(content={"sync_all": False})
 
 
 @router.post("/cleanup")

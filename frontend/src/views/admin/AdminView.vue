@@ -1160,13 +1160,14 @@ onMounted(() => {
 }
 
 .logs-content {
-  background: #1a1a1a;
-  border-radius: 8px;
+  background: var(--surface-root);
+  border-radius: var(--radius-sm);
   padding: 16px;
   max-height: 400px;
   overflow-y: auto;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
+  color: var(--text-body);
 }
 
 .log-item {

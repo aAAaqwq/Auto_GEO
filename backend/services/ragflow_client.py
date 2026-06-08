@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 RAGFlow API 客户端封装
-用于文章向量化和去重检测！
+用于文章向量化和去重检测!
 """
 
 import os
@@ -14,11 +14,11 @@ class RAGFlowClient:
     """
     RAGFlow API 客户端封装
 
-    功能：
+    功能:
     1. 知识库管理
     2. 文档上传与解析
-    3. 检索（用于去重）
-    4. 聊天对话（用于生成）
+    3. 检索(用于去重)
+    4. 聊天对话(用于生成)
     """
 
     def __init__(self, base_url: str = None, api_key: str = None):
@@ -26,12 +26,13 @@ class RAGFlowClient:
         初始化 RAGFlow 客户端
 
         Args:
-            base_url: RAGFlow 服务地址，默认从环境变量读取
-            api_key: API Key，默认从环境变量读取
+            base_url: RAGFlow 服务地址,默认从环境变量读取
+            api_key: API Key,默认从环境变量读取
         """
         self.base_url = base_url or os.getenv("RAGFLOW_BASE_URL", "http://localhost:9380")
         self.api_key = api_key or os.getenv("RAGFLOW_API_KEY", "")
         self.dataset_id = os.getenv("RAGFLOW_DATASET_ID", "")
+        self.embedding_model = os.getenv("RAGFLOW_EMBEDDING_MODEL", "text-embedding-v4@Tongyi-Qianwen")
 
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"})
@@ -44,6 +45,105 @@ class RAGFlowClient:
         return bool(self.api_key and self.base_url)
 
     # ==================== 知识库管理 ====================
+
+    def _extract_datasets(self, result: Dict) -> List[Dict]:
+        data = result.get("data", [])
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in ("items", "datasets", "list"):
+                items = data.get(key)
+                if isinstance(items, list):
+                    return [item for item in items if isinstance(item, dict)]
+        return []
+
+    def _resolve_embedding_model(self, tenant_id: str = None) -> str:
+        if self.embedding_model:
+            return self.embedding_model
+
+        if not tenant_id:
+            return ""
+
+        result = self.list_datasets(page=1, page_size=100)
+        if result.get("code") != 0:
+            return ""
+
+        for dataset in self._extract_datasets(result):
+            if dataset.get("tenant_id") != tenant_id:
+                continue
+            embedding_model = dataset.get("embedding_model")
+            if embedding_model:
+                self.embedding_model = str(embedding_model)
+                logger.info(f"复用已有 RAGFlow 向量模型: {self.embedding_model}")
+                return self.embedding_model
+
+        return ""
+
+    def ensure_dataset_embedding_model(self, dataset_id: str) -> Dict:
+        result = self.get_dataset(dataset_id)
+        if result.get("code") != 0:
+            return result
+
+        data = result.get("data", {})
+        current_embedding_model = data.get("embedding_model") if isinstance(data, dict) else None
+        if current_embedding_model:
+            if self.embedding_model and current_embedding_model != self.embedding_model:
+                update_result = self.update_dataset(dataset_id, embedding_model=self.embedding_model)
+                if update_result.get("code") == 0:
+                    logger.info(
+                        f"已更新知识库 RAGFlow 向量模型: dataset_id={dataset_id}, "
+                        f"from={current_embedding_model}, to={self.embedding_model}"
+                    )
+                return update_result
+            return result
+
+        tenant_id = data.get("tenant_id") if isinstance(data, dict) else None
+        embedding_model = self._resolve_embedding_model(tenant_id=tenant_id)
+        if not embedding_model:
+            return {
+                "code": -1,
+                "message": "当前 RAGFlow 租户未配置可用 embedding 模型,请先在 RAGFlow 中设置默认向量模型",
+            }
+
+        update_result = self.update_dataset(dataset_id, embedding_model=embedding_model)
+        if update_result.get("code") == 0:
+            logger.info(f"已为知识库绑定 RAGFlow 向量模型: dataset_id={dataset_id}, model={embedding_model}")
+        return update_result
+
+    def try_bind_dataset_embedding_model(self, dataset_id: str) -> Dict:
+        """Best-effort bind; upload should still proceed if RAGFlow rejects the model."""
+        result = self.ensure_dataset_embedding_model(dataset_id)
+        if result.get("code") != 0:
+            logger.warning(
+                f"绑定 RAGFlow 向量模型失败,将继续上传文件: "
+                f"dataset_id={dataset_id}, model={self.embedding_model}, message={result.get('message')}"
+            )
+        return result
+
+    def ensure_dataset_chunk_method(self, dataset_id: str) -> Dict:
+        """
+        确保数据集使用兼容的分块方法。
+        手动创建的数据集可能使用 paper/qa/table 等专用解析器,
+        普通文档上传会解析失败,需要自动修复为 naive (通用文本分块)。
+        """
+        result = self.get_dataset(dataset_id)
+        if result.get("code") != 0:
+            return result
+
+        data = result.get("data", {})
+        current_method = data.get("chunk_method") if isinstance(data, dict) else None
+
+        if current_method and current_method != "naive":
+            logger.warning(
+                f"数据集 {dataset_id} chunk_method={current_method}, "
+                f"自动修复为 naive 以确保文档解析正常"
+            )
+            update_result = self.update_dataset(dataset_id, chunk_method="naive")
+            if update_result.get("code") == 0:
+                logger.info(f"已更新数据集 chunk_method: {dataset_id} paper/qa/etc -> naive")
+            return update_result
+
+        return {"code": 0}
 
     def create_dataset(self, name: str, description: str = None) -> Dict:
         """
@@ -63,6 +163,9 @@ class RAGFlowClient:
         }
         if description:
             payload["description"] = description
+        embedding_model = self._resolve_embedding_model()
+        if embedding_model:
+            payload["embedding_model"] = embedding_model
 
         try:
             resp = self.session.post(f"{self.base_url}/api/v1/datasets", json=payload, timeout=self.timeout)
@@ -79,7 +182,7 @@ class RAGFlowClient:
         列出知识库
 
         Args:
-            name: 可选，按名称筛选
+            name: 可选,按名称筛选
             page: 页码
             page_size: 每页数量
 
@@ -116,7 +219,14 @@ class RAGFlowClient:
             logger.error(f"获取知识库详情失败: {e}")
             return {"code": -1, "message": str(e)}
 
-    def update_dataset(self, dataset_id: str, name: str = None, description: str = None) -> Dict:
+    def update_dataset(
+        self,
+        dataset_id: str,
+        name: str = None,
+        description: str = None,
+        embedding_model: str = None,
+        chunk_method: str = None,
+    ) -> Dict:
         """
         更新知识库
 
@@ -124,6 +234,8 @@ class RAGFlowClient:
             dataset_id: 知识库 ID
             name: 知识库名称
             description: 描述
+            embedding_model: 向量模型
+            chunk_method: 分块方法 (naive/paper/qa/table等)
 
         Returns:
             API 响应
@@ -134,6 +246,10 @@ class RAGFlowClient:
                 payload["name"] = name
             if description:
                 payload["description"] = description
+            if embedding_model:
+                payload["embedding_model"] = embedding_model
+            if chunk_method:
+                payload["chunk_method"] = chunk_method
 
             if not payload:
                 return {"code": 0, "message": "无需更新"}
@@ -158,9 +274,13 @@ class RAGFlowClient:
             API 响应
         """
         try:
-            resp = self.session.delete(f"{self.base_url}/api/v1/datasets/{dataset_id}", timeout=self.timeout)
+            resp = self.session.delete(
+                f"{self.base_url}/api/v1/datasets",
+                json={"ids": [dataset_id]},
+                timeout=self.timeout,
+            )
             resp.raise_for_status()
-            result = resp.json()
+            result = resp.json() if resp.content else {"code": 0, "data": {"ids": [dataset_id]}}
             logger.info(f"删除知识库成功: {dataset_id}")
             return result
         except Exception as e:
@@ -196,7 +316,7 @@ class RAGFlowClient:
 
     def upload_document_content(self, dataset_id: str, title: str, content: str) -> Dict:
         """
-        上传文本内容到知识库（创建为 txt 文档）
+        上传文本内容到知识库(创建为 txt 文档)
 
         Args:
             dataset_id: 知识库 ID
@@ -207,6 +327,9 @@ class RAGFlowClient:
             API 响应
         """
         try:
+            self.try_bind_dataset_embedding_model(dataset_id)
+            self.ensure_dataset_chunk_method(dataset_id)
+
             # 创建临时文件内容
             file_content = f"# {title}\n\n{content}"
             file_name = f"{title[:50]}.txt"
@@ -239,17 +362,20 @@ class RAGFlowClient:
 
     def upload_document_file(self, dataset_id: str, file_path: str, file_name: str = None) -> Dict:
         """
-        上传二进制文件到知识库（支持PDF、Word、Excel等格式）
+        上传二进制文件到知识库(支持PDF、Word、Excel等格式)
 
         Args:
             dataset_id: 知识库 ID
-            file_path: 文件路径（绝对路径）
-            file_name: 自定义文件名（可选，默认使用原文件名）
+            file_path: 文件路径(绝对路径)
+            file_name: 自定义文件名(可选,默认使用原文件名)
 
         Returns:
             API 响应
         """
         try:
+            self.try_bind_dataset_embedding_model(dataset_id)
+            self.ensure_dataset_chunk_method(dataset_id)
+
             import os
             from pathlib import Path
 
@@ -305,21 +431,25 @@ class RAGFlowClient:
             return {"code": -1, "message": str(e)}
 
     def upload_document_bytes(
-        self, dataset_id: str, file_content: bytes, file_name: str, content_type: str = None
+        self, dataset_id: str, file_content: bytes, file_name: str, content_type: str = None, do_parse: bool = True
     ) -> Dict:
         """
-        上传二进制内容到知识库（用于直接上传内存中的文件）
+        上传二进制内容到知识库(用于直接上传内存中的文件)
 
         Args:
             dataset_id: 知识库 ID
             file_content: 文件二进制内容
             file_name: 文件名
-            content_type: MIME类型（可选）
+            content_type: MIME类型(可选)
+            do_parse: 是否自动触发解析 (默认True)
 
         Returns:
             API 响应
         """
         try:
+            self.try_bind_dataset_embedding_model(dataset_id)
+            self.ensure_dataset_chunk_method(dataset_id)
+
             from pathlib import Path
 
             # 确定文件MIME类型
@@ -352,10 +482,12 @@ class RAGFlowClient:
 
             if result.get("code") == 0:
                 logger.info(f"二进制内容上传成功: {file_name}")
-                # 触发解析
-                doc_ids = [doc.get("id") for doc in result.get("data", [])]
-                if doc_ids:
-                    self.parse_documents(dataset_id, doc_ids)
+                if do_parse:
+                    doc_ids = [doc.get("id") for doc in result.get("data", [])]
+                    if doc_ids:
+                        self.parse_documents(dataset_id, doc_ids)
+                else:
+                    logger.info(f"用户选择不自动解析文档: {file_name}")
 
             return result
 
@@ -365,7 +497,7 @@ class RAGFlowClient:
 
     def parse_documents(self, dataset_id: str, document_ids: List[str]) -> Dict:
         """
-        触发文档解析（分块）
+        触发文档解析(分块)
 
         Args:
             dataset_id: 知识库 ID
@@ -443,7 +575,7 @@ class RAGFlowClient:
 
     def update_document(self, dataset_id: str, document_id: str, title: str = None, content: str = None) -> Dict:
         """
-        更新文档（通过删除旧文档并创建新文档实现）
+        更新文档(通过删除旧文档并创建新文档实现)
 
         Args:
             dataset_id: 知识库 ID
@@ -458,7 +590,7 @@ class RAGFlowClient:
             # 先删除旧文档
             delete_result = self.delete_document(dataset_id, document_id)
             if delete_result.get("code") != 0:
-                logger.warning(f"删除旧文档失败，可能文档不存在: {document_id}")
+                logger.warning(f"删除旧文档失败,可能文档不存在: {document_id}")
 
             # 创建新文档
             if title and content:
@@ -485,10 +617,12 @@ class RAGFlowClient:
         """
         try:
             resp = self.session.delete(
-                f"{self.base_url}/api/v1/datasets/{dataset_id}/documents/{document_id}", timeout=self.timeout
+                f"{self.base_url}/api/v1/datasets/{dataset_id}/documents",
+                json={"ids": [document_id]},
+                timeout=self.timeout,
             )
             resp.raise_for_status()
-            result = resp.json()
+            result = resp.json() if resp.content else {"code": 0, "data": {"ids": [document_id]}}
             logger.info(f"删除文档成功: {document_id}")
             return result
         except Exception as e:
@@ -516,18 +650,18 @@ class RAGFlowClient:
             logger.error(f"列出文档失败: {e}")
             return {"code": -1, "message": str(e)}
 
-    # ==================== 检索（去重核心）====================
+    # ==================== 检索(去重核心)====================
 
     def retrieve(
         self, question: str, dataset_ids: List[str], similarity_threshold: float = 0.85, top_k: int = 1024
     ) -> Dict:
         """
-        检索相似内容（用于去重）
+        检索相似内容(用于去重)
 
         Args:
             question: 待检测的文章内容摘要
             dataset_ids: 知识库 ID 列表
-            similarity_threshold: 相似度阈值，0-1 之间
+            similarity_threshold: 相似度阈值,0-1 之间
             top_k: 候选数量
 
         Returns:
@@ -561,7 +695,7 @@ class RAGFlowClient:
 
         Args:
             content: 文章内容
-            dataset_ids: 知识库 ID 列表（默认使用配置的 dataset_id）
+            dataset_ids: 知识库 ID 列表(默认使用配置的 dataset_id)
             threshold: 相似度阈值
 
         Returns:
@@ -571,10 +705,10 @@ class RAGFlowClient:
             dataset_ids = [self.dataset_id] if self.dataset_id else []
 
         if not dataset_ids:
-            logger.warning("未配置知识库 ID，跳过去重检测")
+            logger.warning("未配置知识库 ID,跳过去重检测")
             return False, []
 
-        # 生成内容摘要（取前500字符）
+        # 生成内容摘要(取前500字符)
         summary = content[:500] if len(content) > 500 else content
         logger.debug(f"去重检索摘要: {summary[:50]}...")
         logger.debug(f"检索阈值: {threshold}, 知识库: {dataset_ids}")
@@ -609,7 +743,7 @@ class RAGFlowClient:
 
         return True, list(articles.values())
 
-    # ==================== 聊天（文章生成）====================
+    # ==================== 聊天(文章生成)====================
 
     def create_chat(self, name: str, dataset_ids: List[str], system_prompt: str = None) -> Dict:
         """

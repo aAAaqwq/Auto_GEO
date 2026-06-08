@@ -392,24 +392,30 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* ================================================================
+   Projects — Warm Studio
+   ================================================================ */
+
 .projects-page {
   display: flex;
   flex-direction: column;
   gap: 24px;
   height: 100%;
-  padding: 24px;
-  background: #0f1419;
+  padding: 24px 28px;
+  background: transparent;
 }
 
-// 头部
+// ---- Header ----
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 24px 28px;
-  background: linear-gradient(135deg, #1a1f2e 0%, #161b26 100%);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(135deg, rgba(110, 184, 214, 0.05), transparent 60%),
+    var(--surface-raised);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-thin);
 
   .header-content {
     display: flex;
@@ -420,42 +426,40 @@ onMounted(() => {
       width: 52px;
       height: 52px;
       border-radius: 14px;
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      background: linear-gradient(135deg, #7b9ec7, #5a7db0);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: #fff;
 
-      svg {
-        width: 26px;
-        height: 26px;
-      }
+      svg { width: 26px; height: 26px; }
     }
 
     .page-title {
       margin: 0 0 4px 0;
+      font-family: var(--font-display);
       font-size: 22px;
       font-weight: 600;
-      color: #f1f5f9;
+      color: var(--text-head);
     }
 
     .page-desc {
       margin: 0;
       font-size: 13px;
-      color: #64748b;
+      color: var(--text-muted);
     }
   }
 }
 
-// 项目区域
+// ---- Section ----
 .projects-section {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #1a1f2e 0%, #161b26 100%);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-thin);
   padding: 24px 28px;
 
   .section-header {
@@ -468,20 +472,21 @@ onMounted(() => {
       margin: 0;
       font-size: 16px;
       font-weight: 600;
-      color: #f1f5f9;
+      color: var(--text-head);
     }
 
     .section-count {
-      font-size: 13px;
-      color: #64748b;
+      font-size: 12px;
+      color: var(--text-muted);
       padding: 4px 12px;
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(200, 185, 160, 0.06);
       border-radius: 20px;
+      font-weight: 500;
     }
   }
 }
 
-// 项目网格
+// ---- Project Grid ----
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -491,19 +496,20 @@ onMounted(() => {
   padding: 4px;
 }
 
-// 项目卡片
+// ---- Project Card ----
 .project-card {
-  background: #1e2433;
-  border-radius: 14px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-field);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  border: 1px solid var(--border-thin);
   display: flex;
   flex-direction: column;
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) var(--ease-out);
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.3);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    border-color: rgba(123, 158, 199, 0.30);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
   }
 
   .card-header {
@@ -516,29 +522,27 @@ onMounted(() => {
       width: 44px;
       height: 44px;
       border-radius: 12px;
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      background: linear-gradient(135deg, #7b9ec7, #5a7db0);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 600;
       font-size: 16px;
-      color: white;
+      color: #fff;
     }
 
     .more-btn {
       width: 32px;
       height: 32px;
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #64748b;
-      transition: all 0.2s;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--duration-fast);
 
-      &:hover {
-        background: rgba(255, 255, 255, 0.06);
-        color: #94a3b8;
-      }
+      &:hover { background: var(--surface-hover); color: var(--text-head); }
     }
   }
 
@@ -548,16 +552,16 @@ onMounted(() => {
     .project-name {
       margin: 0 0 8px 0;
       font-size: 15px;
-      font-weight: 500;
-      color: #f1f5f9;
+      font-weight: 600;
+      color: var(--text-head);
     }
 
     .project-company {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
-      color: #64748b;
+      font-size: 13px;
+      color: var(--text-muted);
       margin-bottom: 12px;
     }
 
@@ -565,12 +569,12 @@ onMounted(() => {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 5px 10px;
-      background: rgba(251, 146, 60, 0.12);
-      border-radius: 7px;
+      padding: 5px 12px;
+      background: var(--warning-soft);
+      border-radius: var(--radius-sm);
       font-size: 12px;
       font-weight: 500;
-      color: #fb923c;
+      color: var(--warning);
       margin-bottom: 12px;
     }
 
@@ -581,24 +585,21 @@ onMounted(() => {
       flex-wrap: wrap;
 
       .industry-badge {
-        padding: 3px 8px;
-        background: rgba(255, 255, 255, 0.04);
-        border-radius: 5px;
+        padding: 3px 10px;
+        background: rgba(200, 185, 160, 0.06);
+        border-radius: var(--radius-sm);
         font-size: 11px;
-        color: #64748b;
+        color: var(--text-muted);
       }
 
-      .keyword-count {
-        font-size: 11px;
-        color: #475569;
-      }
+      .keyword-count { font-size: 11px; color: var(--text-disabled); }
     }
   }
 
   .card-footer {
     margin-top: 14px;
     padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border-thin);
 
     .action-btn {
       width: 100%;
@@ -608,25 +609,24 @@ onMounted(() => {
       gap: 8px;
       padding: 10px 20px;
       border: none;
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all var(--duration-fast) var(--ease-out);
+      letter-spacing: 0.01em;
 
       &.primary {
-        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-        color: white;
+        background: linear-gradient(135deg, #7b9ec7, #5a7db0);
+        color: #fff;
 
-        &:hover {
-          box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-        }
+        &:hover { box-shadow: 0 4px 16px rgba(123, 158, 199, 0.35); transform: translateY(-1px); }
       }
     }
   }
 }
 
-// 空状态
+// ---- Empty State ----
 .empty-state {
   grid-column: 1 / -1;
   display: flex;
@@ -639,149 +639,19 @@ onMounted(() => {
     width: 72px;
     height: 72px;
     border-radius: 50%;
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(123, 158, 199, 0.10);
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 16px;
 
-    svg {
-      width: 32px;
-      height: 32px;
-      color: #6366f1;
-    }
+    svg { width: 32px; height: 32px; color: #7b9ec7; }
   }
 
-  h3 {
-    margin: 0 0 8px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #f1f5f9;
-  }
-
-  p {
-    margin: 0 0 20px 0;
-    font-size: 13px;
-    color: #64748b;
-  }
+  h3 { margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: var(--text-head); }
+  p { margin: 0 0 20px 0; font-size: 13px; color: var(--text-muted); }
 }
 
-// 表单提示
-.form-tip {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #64748b;
-}
-
-// 对话框样式
-:deep(.project-dialog) {
-  .el-dialog {
-    background: #1a1f2e;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .el-dialog__header {
-    padding: 20px 24px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-
-    .el-dialog__title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #f1f5f9;
-    }
-
-    .el-dialog__headerbtn .el-dialog__close {
-      color: #64748b;
-
-      &:hover {
-        color: #94a3b8;
-      }
-    }
-  }
-
-  .el-dialog__body {
-    padding: 20px 24px;
-  }
-
-  .el-dialog__footer {
-    padding: 16px 24px 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .el-form-item__label {
-    font-weight: 500;
-    color: #94a3b8;
-  }
-
-  .el-input__wrapper,
-  .el-textarea__inner {
-    background: #0f1419;
-    border-color: rgba(255, 255, 255, 0.1);
-    color: #f1f5f9;
-    border-radius: 8px;
-    transition: all 0.2s;
-    box-shadow: none;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.3);
-    }
-
-    &.is-focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
-    }
-
-    input {
-      background: transparent;
-      color: #f1f5f9;
-    }
-
-    &.is-disabled {
-      background: rgba(255, 255, 255, 0.02);
-    }
-  }
-
-  .el-select {
-    .el-input__wrapper {
-      background: #0f1419;
-    }
-  }
-
-  .el-select__popper {
-    background: #1a1f2e;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-
-    .el-select-dropdown__item {
-      color: #94a3b8;
-      background: transparent;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.04);
-      }
-
-      &.is-selected {
-        color: #6366f1;
-        background: rgba(99, 102, 241, 0.1);
-      }
-    }
-  }
-}
-
-// 滚动条
-.projects-grid::-webkit-scrollbar {
-  width: 5px;
-}
-
-.projects-grid::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.projects-grid::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-}
+// ---- Form Tip ----
+.form-tip { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
 </style>

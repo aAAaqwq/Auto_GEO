@@ -66,6 +66,7 @@
           <div class="dataset-info">
             <h3 class="dataset-name">{{ dataset.name }}</h3>
             <p class="dataset-desc">{{ dataset.description || '暂无描述' }}</p>
+            <p v-if="dataset.embedding_model" class="dataset-model" :title="dataset.embedding_model">{{ dataset.embedding_model }}</p>
             <div class="dataset-stats">
               <span class="stat-badge">
                 <svg viewBox="0 0 16 16" fill="currentColor" width="12">
@@ -144,6 +145,9 @@
               <el-tag :type="getDocStatusType(doc.run_status)" size="small">
                 {{ getDocStatusLabel(doc.run_status) }}
               </el-tag>
+              <span v-if="doc.progress_msg" class="doc-error" :title="doc.progress_msg">
+                {{ formatProgressMessage(doc.progress_msg) }}
+              </span>
               <span class="doc-size">{{ formatFileSize(doc.size) }}</span>
               <span class="doc-type">{{ doc.type.toUpperCase() }}</span>
             </div>
@@ -179,21 +183,24 @@
       title="上传文档"
       width="520px"
       :close-on-click-modal="false"
+      @close="cancelUpload"
     >
       <el-upload
         class="upload-area"
         drag
         action="#"
         :auto-upload="false"
-        :on-change="handleUploadChange"
+        :on-change="handleFileSelected"
         :file-list="uploadFiles"
+        :limit="1"
+        :on-exceed="() => ElMessage.warning('一次只能上传一个文件')"
         accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx"
       >
         <div class="upload-content">
           <el-icon class="upload-icon"><Upload /></el-icon>
           <div class="upload-text">
             <span>将文件拖到此处，或</span>
-            <em>点击上传</em>
+            <em>点击选择</em>
           </div>
           <div class="upload-tip">支持 PDF、Word、Excel、PPT、TXT 等格式</div>
         </div>
@@ -204,7 +211,10 @@
       </el-checkbox>
 
       <template #footer>
-        <el-button @click="showUploadDialog = false">取消</el-button>
+        <el-button @click="cancelUpload" :disabled="uploadLoading">取消</el-button>
+        <el-button type="primary" :loading="uploadLoading" :disabled="pendingFile === null" @click="confirmUpload">
+          {{ uploadLoading ? '上传中...' : '上传' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -261,6 +271,7 @@ interface RAGFlowDataset {
   id: string
   name: string
   description?: string
+  embedding_model?: string
   document_count: number
   chunk_count: number
   created_at: string
@@ -274,9 +285,12 @@ interface RAGFlowDocument {
   size: number
   run_status: string
   chunk_method: string
+  progress_msg?: string
   created_at: string
   updated_at: string
 }
+
+type TagType = 'success' | 'primary' | 'warning' | 'info' | 'danger'
 
 // ==================== 状态 ====================
 const ragflowConnected = ref(false)
@@ -298,6 +312,7 @@ const showPreview = ref(false)
 
 const uploadFiles = ref<any[]>([])
 const uploadDatasetId = ref('')
+const pendingFile = ref<any>(null) // 用户选中的文件，待确认上传
 const autoParse = ref(true)
 
 // ==================== 计算属性 ====================
@@ -452,57 +467,88 @@ const previewDocument = (doc: RAGFlowDocument) => {
 const openUploadDialog = (dataset: RAGFlowDataset) => {
   uploadDatasetId.value = dataset.id
   uploadFiles.value = []
+  pendingFile.value = null
+  uploadLoading.value = false
   showUploadDialog.value = true
 }
 
-const handleUploadChange = async (uploadOptions: any) => {
-  const { file } = uploadOptions
+const handleFileSelected = (uploadFile: any) => {
+  // 只记录用户选择的文件, 不立即上传
+  pendingFile.value = uploadFile
+  uploadFiles.value = [uploadFile]
+}
+
+const cancelUpload = () => {
+  uploadLoading.value = false
+  uploadFiles.value = []
+  pendingFile.value = null
+  showUploadDialog.value = false
+}
+
+const confirmUpload = async () => {
+  if (!pendingFile.value) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+
   uploadLoading.value = true
 
   try {
+    const uploadFile = pendingFile.value
     const formData = new FormData()
-    formData.append('file', file.raw)
-    formData.append('title', file.name)
+    formData.append('file', uploadFile.raw)
+    formData.append('title', uploadFile.name)
+    formData.append('auto_parse', autoParse.value ? 'true' : 'false')
 
     await api.knowledge.uploadRAGFlowDocument(uploadDatasetId.value, formData)
-    ElMessage.success(`文件 "${file.name}" 上传成功`)
+    ElMessage.success('文件 "{name}" 上传成功'.replace('{name}', uploadFile.name))
     showUploadDialog.value = false
+    uploadFiles.value = []
+    pendingFile.value = null
 
     // 刷新文档列表
     if (activeDataset.value && activeDataset.value.id === uploadDatasetId.value) {
       await loadDocuments(uploadDatasetId.value)
     }
-    // 刷新数据集列表（更新文档计数）
+    // 刷新数据集列表
     await loadDatasets()
-  } catch {
-    ElMessage.error('上传失败')
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail || e?.message || '网络错误'
+    ElMessage.error('上传失败: {detail} (status={code})'.replace('{detail}', detail).replace('{code}', String(e?.response?.status || '')))
   } finally {
     uploadLoading.value = false
-    uploadFiles.value = []
   }
 }
 
 // ==================== 工具函数 ====================
 const getDocStatusLabel = (status: string): string => {
+  const value = String(status)
   const map: Record<string, string> = {
     'UNSTART': '等待中', '0': '等待中',
-    'RUNNING': '解析中', '2': '解析中',
+    'RUNNING': '解析中', '1': '解析中',
     'DONE': '已完成', '3': '已完成', 'COMPLETE': '已完成',
-    'CANCEL': '已取消',
+    'CANCEL': '已取消', '2': '已取消',
     'FAIL': '失败', '4': '失败',
   }
-  return map[status] || '未知'
+  return map[value] || '未知'
 }
 
-const getDocStatusType = (status: string): string => {
-  const map: Record<string, string> = {
+const getDocStatusType = (status: string): TagType => {
+  const value = String(status)
+  const map: Record<string, TagType> = {
     'UNSTART': 'info', '0': 'info',
-    'RUNNING': 'warning', '2': 'warning',
+    'RUNNING': 'warning', '1': 'warning',
     'DONE': 'success', '3': 'success', 'COMPLETE': 'success',
-    'CANCEL': 'info',
+    'CANCEL': 'info', '2': 'info',
     'FAIL': 'danger', '4': 'danger',
   }
-  return map[status] || 'info'
+  return map[value] || 'info'
+}
+
+const formatProgressMessage = (message: string): string => {
+  const lines = message.split('\n').map(line => line.trim()).filter(Boolean)
+  const errorLine = lines.find(line => line.includes('[ERROR]')) || lines[lines.length - 1] || message
+  return errorLine.replace(/^\d{2}:\d{2}:\d{2}\s*/, '').slice(0, 80)
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -521,13 +567,18 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* ================================================================
+   Knowledge — Dark Theme (Precision Design System)
+   ================================================================ */
+$purple-accent: #8b5cf6;
+
 .knowledge-page {
   display: flex;
   flex-direction: column;
   gap: 24px;
   height: 100%;
   padding: 24px;
-  background: linear-gradient(135deg, #f8f9fc 0%, #f0f2f8 100%);
+  background: var(--surface-base);
 }
 
 .page-header {
@@ -535,9 +586,9 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 24px 28px;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
 
   .header-left {
     display: flex;
@@ -548,7 +599,7 @@ onMounted(() => {
       width: 52px;
       height: 52px;
       border-radius: 14px;
-      background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+      background: linear-gradient(135deg, $purple-accent, #6366f1);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -559,15 +610,16 @@ onMounted(() => {
 
     .page-title {
       margin: 0 0 4px 0;
+      font-family: var(--font-display);
       font-size: 22px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
     .page-desc {
       margin: 0;
       font-size: 13px;
-      color: #9ca3af;
+      color: var(--text-muted);
     }
   }
 
@@ -583,23 +635,23 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: #fef2f2;
-  border-radius: 8px;
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
   font-size: 13px;
-  color: #dc2626;
+  color: var(--danger);
 
   &.connected {
-    background: #f0fdf4;
-    color: #16a34a;
+    background: var(--success-soft);
+    color: var(--success);
 
-    .status-dot { background: #16a34a; }
+    .status-dot { background: var(--success); }
   }
 
   .status-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #dc2626;
+    background: var(--danger);
   }
 }
 
@@ -608,10 +660,10 @@ onMounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: white;
-  border-radius: 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
   padding: 24px 28px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 
   .section-header {
     display: flex;
@@ -623,7 +675,7 @@ onMounted(() => {
       margin: 0;
       font-size: 18px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
     .section-actions {
@@ -648,15 +700,15 @@ onMounted(() => {
   align-items: flex-start;
   gap: 16px;
   padding: 20px;
-  background: #f9fafb;
-  border-radius: 14px;
-  border: 2px solid transparent;
+  background: var(--surface-field);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-thin);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--duration-normal) var(--ease-out);
 
   &:hover {
-    border-color: #8b5cf6;
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.12);
+    border-color: $purple-accent;
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.08);
     transform: translateY(-2px);
   }
 
@@ -664,7 +716,7 @@ onMounted(() => {
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    background: linear-gradient(135deg, #6366f1, $purple-accent);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -682,14 +734,23 @@ onMounted(() => {
       margin: 0 0 6px 0;
       font-size: 16px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
     .dataset-desc {
       margin: 0 0 12px 0;
       font-size: 13px;
-      color: #9ca3af;
+      color: var(--text-muted);
       line-height: 1.4;
+    }
+
+    .dataset-model {
+      margin: -6px 0 10px 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--text-muted);
     }
 
     .dataset-stats {
@@ -700,12 +761,12 @@ onMounted(() => {
 
   .dataset-more {
     font-size: 18px;
-    color: #9ca3af;
+    color: var(--text-muted);
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
 
-    &:hover { background: #e5e7eb; color: #6b7280; }
+    &:hover { background: rgba(255,255,255,0.06); color: var(--text-body); }
   }
 }
 
@@ -714,15 +775,15 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  background: white;
-  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-muted);
 
-  svg { color: #9ca3af; }
+  svg { color: var(--text-muted); }
 }
 
-// 文档抽屉
+// ---- Document Drawer ----
 .doc-header {
   display: flex;
   align-items: center;
@@ -741,21 +802,22 @@ onMounted(() => {
   align-items: center;
   gap: 14px;
   padding: 16px;
-  background: #f9fafb;
-  border-radius: 12px;
-  transition: all 0.2s;
+  background: var(--surface-field);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-md);
+  transition: all var(--duration-fast);
 
-  &:hover { background: #f3f4f6; }
+  &:hover { background: rgba(255,255,255,0.03); }
 
   .doc-icon {
     width: 40px;
     height: 40px;
     border-radius: 10px;
-    background: #e5e7eb;
+    background: rgba(255,255,255,0.04);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #6b7280;
+    color: var(--text-muted);
     flex-shrink: 0;
 
     svg { width: 20px; height: 20px; }
@@ -769,7 +831,7 @@ onMounted(() => {
       margin: 0 0 6px 0;
       font-size: 14px;
       font-weight: 500;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
     .doc-meta {
@@ -778,32 +840,38 @@ onMounted(() => {
       gap: 10px;
     }
 
-    .doc-size, .doc-type {
+    .doc-size, .doc-type { font-size: 12px; color: var(--text-muted); }
+
+    .doc-error {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-size: 12px;
-      color: #9ca3af;
+      color: var(--danger);
     }
   }
 
   .doc-more {
     font-size: 18px;
-    color: #9ca3af;
+    color: var(--text-muted);
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
 
-    &:hover { background: #d1d5db; color: #6b7280; }
+    &:hover { background: rgba(255,255,255,0.06); color: var(--text-body); }
   }
 }
 
-// 上传
+// ---- Upload ----
 .upload-area {
   :deep(.el-upload-dragger) {
     padding: 40px 20px;
-    border-radius: 12px;
-    border: 2px dashed #d1d5db;
-    background: #f9fafb;
+    border-radius: var(--radius-md);
+    border: 2px dashed var(--border-soft);
+    background: var(--surface-field);
 
-    &:hover { border-color: #8b5cf6; }
+    &:hover { border-color: $purple-accent; }
   }
 
   .upload-content {
@@ -812,48 +880,29 @@ onMounted(() => {
     align-items: center;
     gap: 12px;
 
-    .upload-icon { font-size: 48px; color: #9ca3af; }
+    .upload-icon { font-size: 48px; color: var(--text-muted); }
 
     .upload-text {
       font-size: 14px;
-      color: #6b7280;
+      color: var(--text-muted);
 
-      em { color: #8b5cf6; font-style: normal; }
+      em { color: $purple-accent; font-style: normal; }
     }
 
-    .upload-tip { font-size: 12px; color: #9ca3af; }
+    .upload-tip { font-size: 12px; color: var(--text-muted); }
   }
 }
 
-// 文档预览
+// ---- Preview ----
 .document-preview {
   .preview-info { margin-bottom: 20px; }
 
   .preview-chunks {
     margin-top: 20px;
 
-    h4 { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1a1f36; }
+    h4 { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: var(--text-head); }
   }
 
   .preview-not-ready { margin-top: 20px; }
-}
-
-// 滚动条
-.datasets-grid::-webkit-scrollbar,
-.doc-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.datasets-grid::-webkit-scrollbar-track,
-.doc-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.datasets-grid::-webkit-scrollbar-thumb,
-.doc-list::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
-
-  &:hover { background: #9ca3af; }
 }
 </style>

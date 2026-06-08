@@ -210,10 +210,14 @@ function showForgotPassword() {
 </script>
 
 <style scoped lang="scss">
+/* ================================================================
+   Login — Refined Dark Theme
+   ================================================================ */
+
 .login-page {
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: var(--surface-root);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -222,20 +226,19 @@ function showForgotPassword() {
 
 .login-container {
   display: flex;
-  width: 1000px;
-  height: 600px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 20px;
+  width: 960px;
+  height: 580px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-thin);
 }
 
-// 左侧装饰区
+// ---- Left Decorative Panel ----
 .login-decoration {
   flex: 1;
-  background: linear-gradient(135deg, rgba(74, 144, 226, 0.3) 0%, rgba(103, 178, 111, 0.2) 100%);
+  background: linear-gradient(135deg, rgba(94, 163, 240, 0.15) 0%, rgba(67, 185, 127, 0.08) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -250,13 +253,13 @@ function showForgotPassword() {
     left: -50%;
     width: 200%;
     height: 200%;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-    animation: pulse 4s ease-in-out infinite;
+    background: radial-gradient(circle, rgba(94, 163, 240, 0.06) 0%, transparent 70%);
+    animation: pulse 6s ease-in-out infinite;
   }
 
   @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.1); opacity: 0.8; }
+    0%, 100% { transform: scale(1); opacity: 0.4; }
+    50% { transform: scale(1.08); opacity: 0.7; }
   }
 }
 
@@ -270,49 +273,47 @@ function showForgotPassword() {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 14px;
 
-  .logo-icon {
-    font-size: 48px;
-  }
+  .logo-icon { font-size: 44px; }
 
   .logo-text {
-    font-size: 36px;
+    font-family: var(--font-display);
+    font-size: 34px;
     font-weight: 700;
-    background: linear-gradient(135deg, #4a90e2, #67b26f);
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--accent), var(--success));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 }
 
 .slogan {
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.8);
-  margin-bottom: 40px;
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-bottom: 36px;
 }
 
 .features {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   text-align: left;
 }
 
 .feature-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 14px;
+  gap: 10px;
+  color: var(--text-body);
+  font-size: 13px;
 
-  .el-icon {
-    color: #67b26f;
-    font-size: 18px;
-  }
+  .el-icon { color: var(--success); font-size: 17px; }
 }
 
-// 右侧登录表单
+// ---- Right Form Panel ----
 .login-form-wrapper {
   flex: 1;
   display: flex;
@@ -323,58 +324,47 @@ function showForgotPassword() {
 
 .login-form-container {
   width: 100%;
-  max-width: 360px;
+  max-width: 340px;
 }
 
 .form-title {
-  font-size: 28px;
-  font-weight: 600;
-  color: #ffffff;
-  margin: 0 0 8px 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-head);
+  margin: 0 0 6px 0;
   text-align: center;
+  letter-spacing: -0.01em;
 }
 
 .form-subtitle {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  color: var(--text-muted);
   margin: 0 0 32px 0;
   text-align: center;
 }
 
 .login-form {
   .el-input {
-    --el-input-bg-color: rgba(255, 255, 255, 0.1);
-    --el-input-text-color: #ffffff;
-    --el-input-border-color: rgba(255, 255, 255, 0.2);
-    --el-input-hover-border-color: rgba(74, 144, 226, 0.8);
-    --el-input-focus-border-color: #4a90e2;
-    --el-input-placeholder-color: rgba(255, 255, 255, 0.4);
-
     :deep(.el-input__wrapper) {
-      background-color: var(--el-input-bg-color);
-      border-radius: 10px;
+      background: var(--surface-field) !important;
+      border-radius: var(--radius-sm);
       box-shadow: none !important;
-      border: 1px solid var(--el-input-border-color);
+      border: 1px solid var(--border-soft) !important;
       padding: 4px 16px;
       height: 48px;
+      transition: all var(--duration-fast) var(--ease-out);
 
-      &:hover {
-        border-color: var(--el-input-hover-border-color);
-      }
+      &:hover { border-color: var(--border-hover) !important; }
 
       &.is-focus {
-        border-color: var(--el-input-focus-border-color);
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px var(--accent-soft) !important;
       }
     }
 
-    :deep(.el-input__inner) {
-      color: var(--el-input-text-color);
-      font-size: 15px;
-    }
-
-    :deep(.el-input__icon) {
-      color: rgba(255, 255, 255, 0.5);
-    }
+    :deep(.el-input__inner) { color: var(--text-body); font-size: 15px; }
+    :deep(.el-input__icon) { color: var(--text-muted); }
   }
 }
 
@@ -384,17 +374,11 @@ function showForgotPassword() {
   align-items: center;
   width: 100%;
 
-  :deep(.el-checkbox__label) {
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  :deep(.el-checkbox__input.is-checked + .el-checkbox__label) {
-    color: #4a90e2;
-  }
-
+  :deep(.el-checkbox__label) { color: var(--text-muted); font-size: 13px; }
+  :deep(.el-checkbox__input.is-checked + .el-checkbox__label) { color: var(--accent); }
   :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
-    background-color: #4a90e2;
-    border-color: #4a90e2;
+    background-color: var(--accent);
+    border-color: var(--accent);
   }
 }
 
@@ -402,31 +386,41 @@ function showForgotPassword() {
   width: 100%;
   height: 48px;
   font-size: 16px;
-  font-weight: 500;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #4a90e2, #357abd);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
   border: none;
-  transition: all 0.3s ease;
+  letter-spacing: 0.04em;
+  transition: all var(--duration-normal) var(--ease-out);
 
   &:hover {
-    background: linear-gradient(135deg, #5a9fe2, #4a90e2);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(74, 144, 226, 0.4);
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-glow);
   }
 
-  &:active {
-    transform: translateY(0);
+  &:active { transform: translateY(0); }
+}
+
+.form-footer {
+  text-align: center;
+  margin-top: 20px;
+
+  .no-account {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-right: 4px;
   }
 }
 
 .version-info {
-  margin-top: 24px;
+  margin-top: 28px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 12px;
+  color: var(--text-disabled);
+  font-size: 11px;
 }
 
-// 响应式设计
+// ---- Responsive ----
 @media (max-width: 900px) {
   .login-container {
     width: 90%;
@@ -434,58 +428,28 @@ function showForgotPassword() {
     flex-direction: column;
   }
 
-  .login-decoration {
-    padding: 30px;
-    min-height: 200px;
-  }
+  .login-decoration { padding: 28px; min-height: 180px; }
 
   .logo-large {
-    .logo-icon {
-      font-size: 36px;
-    }
-
-    .logo-text {
-      font-size: 28px;
-    }
+    .logo-icon { font-size: 34px; }
+    .logo-text { font-size: 26px; }
   }
 
-  .slogan {
-    font-size: 16px;
-    margin-bottom: 24px;
-  }
+  .slogan { font-size: 14px; margin-bottom: 20px; }
+  .features { display: none; }
 
-  .features {
-    display: none;
-  }
-
-  .login-form-wrapper {
-    padding: 30px;
-  }
+  .login-form-wrapper { padding: 28px; }
 }
 
 @media (max-width: 480px) {
-  .login-decoration {
-    padding: 20px;
-    min-height: 150px;
-  }
+  .login-decoration { padding: 18px; min-height: 130px; }
 
   .logo-large {
-    .logo-icon {
-      font-size: 28px;
-    }
-
-    .logo-text {
-      font-size: 24px;
-    }
+    .logo-icon { font-size: 26px; }
+    .logo-text { font-size: 22px; }
   }
 
-  .slogan {
-    font-size: 14px;
-    margin-bottom: 16px;
-  }
-
-  .login-form-wrapper {
-    padding: 20px;
-  }
+  .slogan { font-size: 12px; margin-bottom: 12px; }
+  .login-form-wrapper { padding: 18px; }
 }
 </style>

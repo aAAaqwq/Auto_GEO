@@ -361,12 +361,28 @@ class AccountValidator:
 
         return result
 
-    async def check_all_accounts(self, db_session: Any, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """批量检测所有账号的授权状态"""
+    async def check_all_accounts(self, db_session: Any, progress_callback: Optional[Callable] = None, user_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        批量检测账号的授权状态
+
+        Args:
+            db_session: 数据库会话
+            progress_callback: 进度回调函数
+            user_id: 可选，只检测指定用户的账号（数据隔离）
+        """
         from backend.database.models import Account
 
-        # 获取所有已激活的账号
-        accounts = db_session.query(Account).filter(Account.status == 1).all()
+        # 构建查询：已激活 + 未软删除
+        query = db_session.query(Account).filter(
+            Account.status == 1,
+            Account.deleted_at.is_(None),
+        )
+
+        # 数据隔离：只检测指定用户的账号
+        if user_id is not None:
+            query = query.filter(Account.user_id == user_id)
+
+        accounts = query.all()
         total = len(accounts)
 
         if total == 0:

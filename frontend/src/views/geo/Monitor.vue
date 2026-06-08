@@ -38,12 +38,19 @@
             </div>
           </div>
           <div class="platform-actions">
-            <el-button 
-              type="primary"
+            <el-button
               size="small"
-              @click="startPlatformAuthFlow(platform.id)"
+              @click="openPlatformInBrowser(platform)"
             >
-              开启新的授权
+              打开平台
+            </el-button>
+            <el-button
+              v-if="platform.status !== 'invalid'"
+              type="danger"
+              size="small"
+              @click="deletePlatformSession(platform.id)"
+            >
+              取消授权
             </el-button>
           </div>
         </div>
@@ -77,15 +84,16 @@
                 />
               </el-select>
             </el-form-item>
-            <el-form-item label="选择关键词">
+            <el-form-item label="选择搜索问题">
               <el-select
                 v-model="checkForm.keywordId"
-                placeholder="请选择关键词"
-                style="width: 200px"
+                placeholder="请选择问题"
+                style="width: 280px"
                 :disabled="!checkForm.projectId"
+                filterable
               >
                 <el-option
-                  v-for="keyword in keywords"
+                  v-for="keyword in questionKeywords"
                   :key="keyword.id"
                   :label="keyword.keyword"
                   :value="keyword.id"
@@ -318,7 +326,7 @@ import {
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { geoKeywordApi, indexCheckApi, reportsApi } from '@/services/api'
-import { get, post } from '@/services/api'
+import { get, post, del } from '@/services/api'
 
 // ==================== 类型定义 ====================
 interface Project {
@@ -330,6 +338,7 @@ interface Project {
 interface Keyword {
   id: number
   keyword: string
+  keyword_type?: string  // "keyword" or "question"
 }
 
 interface CheckRecord {
@@ -354,6 +363,11 @@ const stats = ref({
   keyword_found: 0,
   company_found: 0,
   overall_hit_rate: 0,
+})
+
+// 只显示搜索问题（keyword_type === 'question'），用于收录检测
+const questionKeywords = computed(() => {
+  return keywords.value.filter(k => k.keyword_type === 'question')
 })
 
 const recordsLoading = ref(false)
@@ -983,7 +997,39 @@ const startSinglePlatformAuth = async (authSessionId: string, platform: string) 
   }
 }
 
-// 检查平台授权状态函数已移除，根据设计不自动检查授权状态，用户可通过手动刷新查看状态
+// 在浏览器中打开平台（用于扩展同步）
+const openPlatformInBrowser = (platform: any) => {
+  window.open(platform.url, '_blank')
+  ElMessage.info(`已打开 ${platform.name}，请登录后点击浏览器扩展的"同步"按钮`)
+}
+
+// 删除平台会话（取消授权）
+const deletePlatformSession = async (platformId: string) => {
+  const platform = availablePlatforms.value.find(p => p.id === platformId)
+  try {
+    await ElMessageBox.confirm(
+      `确定要取消 ${platform?.name || platformId} 的授权吗？`,
+      '确认',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+    )
+
+    const user_id = parseInt(localStorage.getItem('current_user_id') || '1')
+    const project_id = checkForm.value.projectId ? parseInt(String(checkForm.value.projectId)) : 1
+
+    await del('/auth/session', {
+      user_id,
+      project_id,
+      platform: platformId,
+    })
+
+    ElMessage.success(`已取消 ${platform?.name || platformId} 的授权`)
+    await loadPlatformStatuses()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(`取消失败: ${err.message || '未知错误'}`)
+    }
+  }
+}
 
 // 获取状态文本
 const getStatusText = (status: string | undefined) => {
@@ -1056,115 +1102,85 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.monitor-page { padding: 20px; background: #1a1a1a; min-height: 100vh; color: #dcdfe6; }
+/* ================================================================
+   Monitor — Warm Studio
+   ================================================================ */
 
-/* 统计卡片 */
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 20px; }
-.stat-card { padding: 20px; border-radius: 12px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-.stat-blue { background: linear-gradient(135deg, #409eff, #79bbff); }
-.stat-green { background: linear-gradient(135deg, #67c23a, #95d475); }
-.stat-orange { background: linear-gradient(135deg, #e6a23c, #eebe77); }
-.stat-purple { background: linear-gradient(135deg, #909399, #b1b3b8); }
-.stat-value { font-size: 28px; font-weight: bold; margin-bottom: 5px; }
-.stat-label { font-size: 14px; opacity: 0.9; }
+.monitor-page { padding: 24px 28px; background: transparent; min-height: 100vh; color: var(--text-body); }
 
-/* 通用 section 样式 */
-.section { background: #252525; padding: 20px; border-radius: 8px; border: 1px solid #3a3a3a; margin-bottom: 20px; }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.section-title { font-size: 16px; font-weight: bold; margin: 0; color: #dcdfe6; }
+/* ---- Stat Cards ---- */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat-card { padding: 22px 24px; border-radius: var(--radius-lg); color: #fff; box-shadow: none; border: 1px solid transparent; }
+.stat-blue { background: linear-gradient(135deg, #5a8db8, #7badd4); }
+.stat-green { background: linear-gradient(135deg, #5ea878, #7dbe8a); }
+.stat-orange { background: linear-gradient(135deg, #c49540, #d4a853); }
+.stat-purple { background: linear-gradient(135deg, #7b8ec7, #9aade0); }
+.stat-value { font-size: 30px; font-weight: 700; margin-bottom: 4px; font-family: var(--font-display); line-height: 1; }
+.stat-label { font-size: 13px; opacity: 0.92; font-weight: 500; }
+
+/* ---- Section Cards ---- */
+.section { background: var(--surface-raised); padding: 22px 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-thin); margin-bottom: 20px; transition: border-color var(--duration-fast); }
+.section:hover { border-color: var(--border-soft); }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.section-title { font-size: 16px; font-weight: 600; margin: 0; color: var(--text-head); font-family: var(--font-display); }
 .header-actions { display: flex; gap: 12px; }
 
-/* 检测表单 */
-.check-form { display: flex; flex-wrap: wrap; gap: 12px; }
+/* ---- Check Form ---- */
+.check-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 
-/* 筛选工具栏样式 */
-.filter-toolbar { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #3a3a3a; }
+/* ---- Filter Toolbar ---- */
+.filter-toolbar { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-thin); }
 .filter-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .filter-form .el-form-item { margin-bottom: 8px; margin-right: 12px; }
-.filter-form .el-form-item__label { color: #dcdfe6; }
-.filter-form .el-input__wrapper { background-color: #3a3a3a; border-color: #4a4a4a; }
-.filter-form .el-input__input { color: #dcdfe6; }
-.filter-form .el-select__wrapper { background-color: #3a3a3a; border-color: #4a4a4a; }
-.filter-form .el-select__input { color: #dcdfe6; }
-.filter-form .el-select__placeholder { color: #909399; }
+.filter-form .el-form-item__label { color: var(--text-muted); }
 
-/* 表格样式 */
+/* ---- Table ---- */
 .pagination-container { display: flex; justify-content: flex-end; margin-top: 16px; }
-.el-table { background-color: #252525; border-color: #3a3a3a; }
-.el-table th { background-color: #2d2d2d; color: #dcdfe6; border-color: #3a3a3a; }
-.el-table td { background-color: #252525; color: #dcdfe6; border-color: #3a3a3a; }
-.el-table tr:hover > td { background-color: #2d2d2d; }
-.el-table__empty-text { color: #909399; }
 
-/* 图表容器 */
+/* ---- Chart ---- */
 .chart-container { width: 100%; height: 350px; }
 
-/* 回答详情对话框 */
+/* ---- Answer Dialog ---- */
 .answer-content { display: flex; flex-direction: column; gap: 16px; }
-.answer-question { padding: 12px; background: #2d2d2d; border-radius: 8px; color: #dcdfe6; }
-.answer-body strong { display: block; margin-bottom: 8px; color: #dcdfe6; }
-.answer-body p { margin: 0; line-height: 1.8; color: #dcdfe6; white-space: pre-wrap; word-break: break-word; }
+.answer-question { padding: 14px 16px; background: var(--surface-field); border-radius: var(--radius-sm); color: var(--text-body); border: 1px solid var(--border-thin); }
+.answer-body strong { display: block; margin-bottom: 8px; color: var(--text-head); }
+.answer-body p { margin: 0; line-height: 1.8; color: var(--text-body); white-space: pre-wrap; word-break: break-word; }
 .answer-result { display: flex; gap: 12px; }
 
-/* 平台授权状态样式 */
-.platform-status-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 20px; margin-bottom: 24px; }
-.platform-status-card { display: flex; align-items: flex-start; padding: 20px; border: 1px solid #3a3a3a; border-radius: 8px; transition: all 0.3s ease; background: #fff; }
-.platform-status-card:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
-.platform-status-card.valid { border-color: #e6a23c; background-color: #fdf6ec; }
-.platform-status-card.expiring { border-color: #e6a23c; background-color: #fdf6ec; }
-.platform-status-card.invalid { border-color: #f56c6c; background-color: #fef0f0; }
+/* ---- Platform Status ---- */
+.platform-status-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.platform-status-card { display: flex; align-items: flex-start; padding: 20px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); transition: all var(--duration-fast) var(--ease-out); background: var(--surface-field); }
+.platform-status-card:hover { border-color: var(--border-hover); }
+.platform-status-card.valid { border-color: var(--success); background: var(--success-soft); }
+.platform-status-card.expiring { border-color: var(--warning); background: var(--warning-soft); }
+.platform-status-card.invalid { border-color: var(--danger); background: var(--danger-soft); }
 .platform-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0; }
 .platform-icon span { font-size: 20px; font-weight: 600; }
 .platform-info { flex: 1; min-width: 0; }
-.platform-info h4 { font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 4px; }
-.platform-info p { font-size: 12px; color: #606266; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.platform-info h4 { font-size: 16px; font-weight: 600; color: var(--text-head); margin-bottom: 4px; }
+.platform-info p { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-info { display: flex; align-items: center; gap: 12px; }
 .platform-actions { display: flex; flex-direction: column; gap: 8px; }
 
-/* 实时日志 */
+/* ---- Live Log ---- */
 .log-section { height: fit-content; }
-.log-console { height: 420px; background: #1a1a1a; color: #dcdfe6; padding: 10px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; font-size: 12px; border-radius: 4px; }
-.log-line { margin-bottom: 4px; border-bottom: 1px solid #2d2d2d; padding-bottom: 2px; }
-.log-time { color: #888; margin-right: 8px; }
-.log-line.SUCCESS { color: #67c23a; }
-.log-line.ERROR { color: #f56c6c; }
+.log-console { height: 420px; background: var(--surface-root); color: var(--text-body); padding: 14px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; border-radius: var(--radius-md); border: 1px solid rgba(200, 185, 160, 0.08); }
+.log-line { margin-bottom: 4px; border-bottom: 1px solid rgba(200, 185, 160, 0.04); padding-bottom: 3px; }
+.log-time { color: var(--text-disabled); margin-right: 10px; }
+.log-line.SUCCESS { color: var(--success); }
+.log-line.ERROR { color: var(--danger); }
 
-/* 响应式设计 */
-@media (max-width: 1200px) {
-  .platform-status-list { grid-template-columns: 1fr; }
-}
+/* ---- Responsive ---- */
+@media (max-width: 1200px) { .platform-status-list { grid-template-columns: 1fr; } }
 
 @media (max-width: 768px) {
   .stats-grid { grid-template-columns: 1fr; }
-  
-  .platform-status-card {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .platform-icon {
-    margin-bottom: 12px;
-  }
-  
-  .platform-info {
-    margin-bottom: 16px;
-  }
-  
-  .platform-actions {
-    width: 100%;
-    flex-direction: row;
-  }
-  
-  .platform-actions .el-button {
-    flex: 1;
-  }
-  
-  .check-form {
-    flex-direction: column;
-  }
-  
-  .filter-form {
-    flex-direction: column;
-  }
+  .platform-status-card { flex-direction: column; align-items: flex-start; }
+  .platform-icon { margin-bottom: 12px; }
+  .platform-info { margin-bottom: 16px; }
+  .platform-actions { width: 100%; flex-direction: row; }
+  .platform-actions .el-button { flex: 1; }
+  .check-form { flex-direction: column; }
+  .filter-form { flex-direction: column; }
 }
 </style>

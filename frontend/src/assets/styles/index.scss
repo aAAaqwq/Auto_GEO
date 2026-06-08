@@ -1,130 +1,597 @@
 /**
- * 全局样式
- * 我用这个来定义全局样式！
+ * AutoGeo — Warm Studio Design System
+ * Refined dark theme with warm undertones for superior readability.
+ * Every page inherits this system; component-specific overrides use :deep().
  */
 
-/* 重置样式 */
-* {
+/* ================================================================
+   CSS Custom Properties — Single Source of Truth
+   ================================================================ */
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces (warm espresso → lightened for readability) ---- */
+  --surface-root: #12100e;
+  --surface-base: #1c1915;
+  --surface-raised: #25221d;
+  --surface-elevated: #2f2b25;
+  --surface-field: #1f1c17;
+  --surface-hover: rgba(255, 246, 230, 0.07);
+
+  /* ---- Borders (warmer, slightly more visible) ---- */
+  --border-thin: rgba(200, 185, 160, 0.10);
+  --border-soft: rgba(200, 185, 160, 0.17);
+  --border-hover: rgba(200, 185, 160, 0.28);
+  --border-accent: rgba(212, 168, 83, 0.50);
+
+  /* ---- Accent / Brand (rich gold primary + teal secondary) ---- */
+  --accent: #d4a853;
+  --accent-ink: #1a1204;
+  --accent-soft: rgba(212, 168, 83, 0.15);
+  --accent-glow: rgba(212, 168, 83, 0.30);
+  --accent-hover: #e8c471;
+  --accent-blue: #6eb8d6;
+  --accent-amber: #d4a853;
+  --accent-coral: #e88870;
+  --accent-lime: #90c068;
+
+  /* ---- Semantic ---- */
+  --success: #7dbe8a;
+  --success-soft: rgba(125, 190, 138, 0.14);
+  --warning: #d4a853;
+  --warning-soft: rgba(212, 168, 83, 0.16);
+  --danger: #e07363;
+  --danger-soft: rgba(224, 115, 99, 0.15);
+
+  /* ---- Text (cream ivory — high contrast on dark surfaces) ---- */
+  --text-head: #fef8ec;
+  --text-body: #e6dccb;
+  --text-muted: #b8aa90;
+  --text-disabled: #7e7462;
+
+  /* ---- Radii ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* ---- Shadows ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 0 24px var(--accent-glow);
+
+  /* ---- Typography ---- */
+  --font-display: 'STZhongsong', 'Noto Serif SC', 'Songti SC', Georgia, serif;
+  --font-body: 'LXGW WenKai Screen', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+
+  /* ---- Transitions ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+
+  /* ---- Backward compat aliases ---- */
+  --bg-primary: var(--surface-base);
+  --bg-secondary: var(--surface-raised);
+  --bg-tertiary: var(--surface-field);
+  --primary: var(--accent);
+  --text-primary: var(--text-head);
+  --text-secondary: var(--text-muted);
+  --border: var(--border-soft);
+}
+
+/* ================================================================
+   Reset & Base
+   ================================================================ */
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-hl,
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html,
 body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* ！我加上实际的背景色！ */
-  background-color: #1e1e1e;
-  color: #ffffff;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(212, 168, 83, 0.08), transparent 35%),
+    radial-gradient(ellipse at 75% 5%, rgba(110, 184, 214, 0.06), transparent 30%),
+    linear-gradient(180deg, rgba(255, 246, 230, 0.03), transparent 50%),
+    var(--surface-root);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 #app {
   width: 100%;
   height: 100%;
-  /* ！给app也加上背景色！ */
-  background-color: #1e1e1e;
-  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 246, 230, 0.04), transparent 240px),
+    var(--surface-base);
+  color: var(--text-body);
 }
 
-/* CSS变量 */
-:root {
-  /* 背景色 */
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d30;
-
-  /* 主题色 */
-  --primary: #4a90e2;
-  --success: #4caf50;
-  --warning: #ff9800;
-  --danger: #e53935;
-
-  /* 文字色 */
-  --text-primary: #ffffff;
-  --text-secondary: #aaaaaa;
-
-  /* 边框色 */
-  --border: #3e3e42;
-}
-
-/* Element Plus 暗色主题覆盖 */
-.el-button {
-  --el-button-bg-color: var(--bg-tertiary);
-  --el-button-border-color: var(--border);
-  --el-button-text-color: var(--text-primary);
-  --el-button-hover-bg-color: var(--primary);
-  --el-button-hover-border-color: var(--primary);
-  --el-button-hover-text-color: #fff;
-}
-
-.el-input {
-  --el-input-bg-color: var(--bg-tertiary);
-  --el-input-border-color: var(--border);
-  --el-input-text-color: var(--text-primary);
-  --el-input-placeholder-color: var(--text-secondary);
-}
-
-.el-select {
-  --el-select-bg-color: var(--bg-tertiary);
-  --el-select-border-color: var(--border);
-}
-
-.el-dialog {
-  --el-dialog-bg-color: var(--bg-secondary);
-  --el-dialog-border-color: var(--border);
-}
-
-.el-table {
-  --el-table-bg-color: transparent;
-  --el-table-tr-bg-color: transparent;
-  --el-table-header-bg-color: var(--bg-tertiary);
-  --el-table-border-color: var(--border);
-  --el-table-text-color: var(--text-primary);
-}
-
-.el-checkbox {
-  --el-checkbox-bg-color: var(--bg-tertiary);
-  --el-checkbox-border-color: var(--border);
-}
-
-/* 滚动条 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
+/* Links */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
 
   &:hover {
-    background: #555;
+    color: var(--accent-hover);
   }
 }
 
-/* 工具类 */
-.text-primary {
-  color: var(--text-primary);
+/* Selection */
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-head);
 }
 
-.text-secondary {
-  color: var(--text-secondary);
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.text-success {
-  color: var(--success);
+/* ================================================================
+   Scrollbar — Global
+   ================================================================ */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
 }
 
-.text-warning {
-  color: var(--warning);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.text-danger {
-  color: var(--danger);
+::-webkit-scrollbar-thumb {
+  background: rgba(200, 185, 160, 0.13);
+  border-radius: 4px;
+  transition: background var(--duration-fast);
+
+  &:hover {
+    background: rgba(200, 185, 160, 0.24);
+  }
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 185, 160, 0.13) transparent;
+}
+
+/* ================================================================
+   Element Plus — Refined Dark Overrides
+   ================================================================ */
+
+/* --- Buttons --- */
+.el-button {
+  --el-button-bg-color: var(--surface-field);
+  --el-button-border-color: var(--border-soft);
+  --el-button-text-color: var(--text-body);
+  --el-button-hover-bg-color: var(--surface-hover);
+  --el-button-hover-border-color: var(--border-hover);
+  --el-button-hover-text-color: var(--text-head);
+  --el-button-active-bg-color: var(--accent-soft);
+  --el-button-active-border-color: var(--accent);
+  --el-button-active-text-color: var(--accent);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--accent);
+  --el-button-border-color: var(--accent);
+  --el-button-text-color: var(--accent-ink);
+  --el-button-hover-bg-color: var(--accent-hover);
+  --el-button-hover-border-color: var(--accent-hover);
+  --el-button-hover-text-color: var(--accent-ink);
+  background:
+    linear-gradient(135deg, var(--accent-hover), var(--accent) 56%, #c49540) !important;
+  border-color: rgba(232, 196, 113, 0.7) !important;
+  box-shadow: 0 8px 20px rgba(212, 168, 83, 0.16);
+  font-weight: 600;
+
+  &:not(:disabled):hover {
+    box-shadow: 0 12px 28px rgba(212, 168, 83, 0.28);
+    transform: translateY(-1px);
+  }
+}
+
+.el-button--success {
+  --el-button-bg-color: var(--success);
+  --el-button-border-color: var(--success);
+}
+
+.el-button--warning {
+  --el-button-bg-color: var(--warning);
+  --el-button-border-color: var(--warning);
+}
+
+.el-button--danger {
+  --el-button-bg-color: var(--danger);
+  --el-button-border-color: var(--danger);
+}
+
+/* --- Inputs --- */
+.el-input__wrapper {
+  background: var(--surface-field) !important;
+  border: 1px solid var(--border-soft) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: none !important;
+  transition: all var(--duration-fast) var(--ease-out);
+
+  &:hover {
+    border-color: var(--border-hover) !important;
+  }
+
+  &.is-focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-soft) !important;
+  }
+}
+
+.el-input__inner {
+  color: var(--text-body) !important;
+
+  &::placeholder {
+    color: var(--text-disabled) !important;
+  }
+}
+
+/* --- Select --- */
+.el-select__wrapper {
+  background: var(--surface-field) !important;
+  border: 1px solid var(--border-soft) !important;
+  box-shadow: none !important;
+}
+
+.el-select-dropdown {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.el-select-dropdown__item {
+  color: var(--text-muted) !important;
+  transition: all 0.1s ease;
+
+  &:hover {
+    background: var(--accent-soft) !important;
+    color: var(--text-body) !important;
+  }
+
+  &.selected {
+    color: var(--accent) !important;
+    font-weight: 600;
+  }
+}
+
+/* --- Dialog --- */
+.el-dialog {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+
+  .el-dialog__header {
+    padding: 24px 28px 0 !important;
+    border-bottom: none !important;
+
+    .el-dialog__title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-head);
+    }
+
+    .el-dialog__headerbtn .el-dialog__close {
+      color: var(--text-muted);
+      &:hover { color: var(--text-head); }
+    }
+  }
+
+  .el-dialog__body {
+    padding: 20px 28px 28px !important;
+    color: var(--text-body);
+  }
+
+  .el-dialog__footer {
+    padding: 0 28px 24px !important;
+    border-top: none !important;
+  }
+}
+
+/* --- Table --- */
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: rgba(212, 168, 83, 0.04);
+  --el-table-border-color: transparent;
+  --el-table-text-color: var(--text-body);
+  --el-table-header-text-color: var(--text-muted);
+
+  .el-table__header-wrapper th {
+    background: rgba(200, 185, 160, 0.04) !important;
+    border-bottom: 1px solid var(--border-thin) !important;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 14px 0;
+  }
+
+  .el-table__body-wrapper td {
+    border-bottom: 1px solid rgba(200, 185, 160, 0.04);
+    padding: 13px 0;
+    color: var(--text-body);
+  }
+
+  .el-table__row:hover td {
+    background: rgba(212, 168, 83, 0.05) !important;
+  }
+}
+
+/* --- Tags --- */
+.el-tag {
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: none;
+}
+
+/* --- Pagination --- */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-text-color: var(--text-muted);
+  --el-pagination-hover-color: var(--accent);
+
+  .btn-prev, .btn-next {
+    background: transparent !important;
+  }
+
+  .el-pager li {
+    background: transparent !important;
+    color: var(--text-muted);
+
+    &:hover { color: var(--accent); }
+
+    &.active {
+      background: var(--accent-soft) !important;
+      color: var(--accent);
+    }
+  }
+}
+
+/* --- Radio / Checkbox --- */
+.el-radio {
+  --el-radio-text-color: var(--text-body);
+  --el-radio-input-bg-color: var(--surface-field);
+  --el-radio-input-border-color: var(--border-soft);
+}
+
+.el-checkbox {
+  --el-checkbox-bg-color: var(--surface-field);
+  --el-checkbox-border-color: var(--border-soft);
+  --el-checkbox-checked-bg-color: var(--accent);
+  --el-checkbox-checked-border-color: var(--accent);
+  --el-checkbox-text-color: var(--text-body);
+}
+
+/* --- Progress --- */
+.el-progress-bar__outer {
+  background: rgba(200, 185, 160, 0.08) !important;
+}
+
+/* --- Loading --- */
+.el-loading-mask {
+  background: rgba(18, 16, 14, 0.65);
+  backdrop-filter: blur(2px);
+}
+
+.el-loading-spinner .circular circle {
+  stroke: var(--accent);
+}
+
+/* --- Drawer --- */
+.el-drawer {
+  background: var(--surface-raised) !important;
+  border-left: 1px solid var(--border-thin) !important;
+
+  .el-drawer__header {
+    color: var(--text-head);
+    margin-bottom: 0;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-thin);
+  }
+
+  .el-drawer__body {
+    padding: 20px 24px;
+  }
+}
+
+/* --- Divider --- */
+.el-divider {
+  border-color: var(--border-thin);
+}
+
+/* --- Form --- */
+.el-form-item__label {
+  color: var(--text-muted) !important;
+  font-weight: 500;
+}
+
+/* --- Date Picker --- */
+.el-picker-panel {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-soft) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+.el-date-table td.available:hover {
+  color: var(--accent);
+}
+
+.el-date-table td.current:not(.disabled) .el-date-table-cell__text {
+  background: var(--accent);
+}
+
+/* --- Dropdown --- */
+.el-dropdown-menu {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+
+  .el-dropdown-menu__item {
+    color: var(--text-muted);
+
+    &:hover {
+      background: var(--accent-soft) !important;
+      color: var(--text-head) !important;
+    }
+  }
+}
+
+/* --- Popconfirm --- */
+.el-popconfirm {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+/* --- Radio button group --- */
+.el-radio-group {
+  .el-radio-button__inner {
+    background: var(--surface-field);
+    border-color: var(--border-soft);
+    color: var(--text-muted);
+
+    &:hover {
+      color: var(--accent);
+    }
+  }
+
+  .el-radio-button.is-active .el-radio-button__inner {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: none;
+  }
+}
+
+/* --- Notification / Message --- */
+.el-message {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+.el-notification {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-thin) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* --- Tabs --- */
+.el-tabs__header {
+  border-bottom-color: var(--border-thin);
+}
+
+.el-tabs__item {
+  color: var(--text-muted);
+
+  &:hover {
+    color: var(--accent);
+  }
+
+  &.is-active {
+    color: var(--accent);
+  }
+}
+
+.el-tabs__active-bar {
+  background: var(--accent);
+}
+
+/* --- Switch --- */
+.el-switch__label {
+  color: var(--text-body);
+}
+
+/* --- Empty --- */
+.el-empty__description {
+  color: var(--text-muted);
+}
+
+/* ================================================================
+   Utility Classes
+   ================================================================ */
+.text-head    { color: var(--text-head) !important; }
+.text-body    { color: var(--text-body) !important; }
+.text-muted   { color: var(--text-muted) !important; }
+.text-accent  { color: var(--accent) !important; }
+.text-success { color: var(--success) !important; }
+.text-warning { color: var(--warning) !important; }
+.text-danger  { color: var(--danger) !important; }
+
+.font-display { font-family: var(--font-display); }
+.font-mono    { font-family: var(--font-mono); }
+
+/* ================================================================
+   Common Section Card
+   ================================================================ */
+.surface-card {
+  background:
+    linear-gradient(180deg, rgba(255, 246, 230, 0.025), transparent),
+    var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+
+  &:hover {
+    border-color: var(--border-soft);
+  }
+}
+
+/* ================================================================
+   Page-level animation
+   ================================================================ */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }

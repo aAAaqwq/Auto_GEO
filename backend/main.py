@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from sqlalchemy import text
 
 # 导入配置和数据库
 from backend.config import APP_NAME, APP_VERSION, DEBUG, HOST, PORT, RELOAD, CORS_ORIGINS, PLATFORMS
@@ -40,6 +41,9 @@ import backend.api.browser as browser  # 本地浏览器桥接
 import backend.api.deployment as deployment  # 部署配置
 import backend.api.user as user  # 用户管理
 import backend.api.admin as admin  # 管理员配置
+import backend.api.feishu as feishu  # 飞书机器人
+import backend.api.integrations as integrations  # 外部 Agent 集成入口
+import backend.api.conversation as conversation  # 后台智能对话
 
 # 导入服务组件
 from backend.services.websocket_manager import ws_manager
@@ -78,8 +82,10 @@ def socket_log_sink(message):
 # 强制重新配置 stdout 使用 UTF-8 编码
 import io
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+if getattr(sys.stdout, "buffer", None):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if getattr(sys.stderr, "buffer", None):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # 配置 Loguru（stdout 已经是 UTF-8 了，不需要额外指定 encoding）
 logger.remove()
@@ -124,6 +130,14 @@ async def lifespan(app: FastAPI):
         f"已注册 {len([k for k in PLATFORMS.keys() if k in ['zhihu', 'baijiahao', 'sohu', 'toutiao', 'xiaohongshu', 'douyin']])} 个平台发布器"
     )
 
+    # 6. 初始化飞书机器人客户端
+    from backend.services.feishu_client import get_feishu_client
+    feishu_client = get_feishu_client()
+    if feishu_client.is_configured:
+        logger.bind(module="飞书机器人").success("飞书机器人已就绪")
+    else:
+        logger.bind(module="飞书机器人").info("飞书机器人未配置，跳过初始化")
+
     yield
 
     # ---------------- 关闭阶段 ----------------
@@ -132,6 +146,7 @@ async def lifespan(app: FastAPI):
     await playwright_mgr.stop()
     n8n_service = await get_n8n_service()
     await n8n_service.close()
+    await feishu_client.close()
     logger.info("服务已安全关闭")
 
 
@@ -141,7 +156,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, debug=DEBUG, lifespan=lifespa
 # 跨域中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -187,6 +202,9 @@ app.include_router(browser.router)  # 本地浏览器桥接
 app.include_router(deployment.router)  # 部署配置
 app.include_router(user.router)  # 用户认证
 app.include_router(admin.router)  # 管理员配置
+app.include_router(feishu.router)  # 飞书机器人
+app.include_router(integrations.router)  # 外部 Agent 集成入口
+app.include_router(conversation.router)  # 后台智能对话
 
 
 # ==================== WebSocket 端点 ====================
@@ -243,7 +261,7 @@ async def health():
     try:
         from backend.database import SessionLocal
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         health_status["services"]["database"] = {"status": "connected"}
     except Exception as e:

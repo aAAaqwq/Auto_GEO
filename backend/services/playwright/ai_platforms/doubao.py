@@ -20,69 +20,38 @@ class DoubaoChecker(AIPlatformChecker):
 
     async def navigate_to_page(self, page: Page) -> bool:
         """
-        豆包平台特殊导航逻辑
-        优化：使用与心跳检测一致的URL，确保会话正确恢复
-
-        Returns:
-            是否成功导航
+        豆包平台导航 — 直接进入聊天页面，避免首页导航栏的"登录"按钮误判
         """
         try:
-            # 使用与配置一致的URL（与心跳检测保持一致）
-            chat_url = "https://www.doubao.com"
-            self._log("info", f"正在导航到豆包页面: {chat_url}")
+            # 直接访问聊天页，跳过首页的导航栏
+            chat_url = "https://www.doubao.com/chat"
+            self._log("info", f"正在导航到豆包聊天页: {chat_url}")
 
-            # 使用 domcontentloaded 代替 load/networkidle，加快响应速度
             await page.goto(chat_url, wait_until="domcontentloaded", timeout=60000)
 
-            # 使用基类的 wait_for_selector 等待关键元素
-            # 这样可以复用并行等待逻辑，而不是死等
+            # 等待关键元素：输入框（已登录）或登录页（未登录）
             try:
-                # 豆包的登录元素或输入框
                 indicators = [
                     "textarea[placeholder*='输入']",
+                    "textarea[placeholder*='发消息']",
+                    "[contenteditable='true']",
                     "[data-testid*='input']",
-                    "[class*='login-btn']",
-                    "button*='登录'",
-                    "[class*='account']",
                 ]
-                await self.wait_for_selector(page, indicators, timeout=10000)
+                await self.wait_for_selector(page, indicators, timeout=15000)
+                self._log("info", "豆包聊天页已就绪（检测到输入框）")
+                return True
             except Exception:
                 pass
 
-            # 豆包特殊的登录状态检测
-            doubao_login_indicators = [
-                "[class*='login-btn']",
-                "[class*='login-button']",
-                "[href*='login']",
-                "[class*='account']",
-                "[class*='login']",
-                "[id*='login']",
-                "button:has-text('登录')",
-                "button:has-text('Sign in')",
-                "text='登录'",
-                "text='Sign in'",
-            ]
-
-            has_login = False
-            # 快速扫描登录元素
-            for indicator in doubao_login_indicators:
-                try:
-                    # 使用较短的超时时间
-                    element = await page.query_selector(indicator)
-                    if element and await element.is_visible():
-                        has_login = True
-                        break
-                except Exception:
-                    continue
-
-            if has_login:
-                self._log("info", "检测到豆包登录页面，请手动完成登录")
-                # 修复：给用户90秒时间完成登录（原来30秒不够）
-                await asyncio.sleep(90)
-                # 重新等待页面稳定
+            # 没找到输入框 → 检查是否被重定向到登录页
+            current_url = page.url
+            if "passport" in current_url or "login" in current_url.lower():
+                self._log("warning", f"豆包重定向到登录页: {current_url}，需要手动登录")
+                await asyncio.sleep(30)
                 await page.wait_for_load_state("domcontentloaded", timeout=30000)
+            else:
+                self._log("info", f"豆包页面已加载: {current_url}")
 
-            self._log("info", "豆包平台导航完成")
             return True
         except Exception as e:
             self._log("error", f"豆包导航失败: {e}")

@@ -19,30 +19,46 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api
 const instance: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 300000, // 增加到5分钟超时，适应AI检测的长耗时
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // 不设默认 Content-Type，axios 会自动处理：
+  // - JSON 对象 → application/json
+  // - FormData → multipart/form-data (由浏览器设)
 })
 
 /**
- * 响应拦截器
+ * 请求拦截器 — 自动注入 JWT Token
  */
 instance.interceptors.request.use(
   (config) => {
-    // 可以在这里添加 token
+    // 从 localStorage 读取 Token 并注入到请求头
+    const token = localStorage.getItem('autogeo_token')
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => Promise.reject(error)
 )
 
+/**
+ * 响应拦截器 — 统一处理错误
+ * 401：静默清除 token（不硬跳转，由路由守卫处理）
+ */
 instance.interceptors.response.use(
   (response: AxiosResponse) => {
     return response.data
   },
   (error) => {
+    // 401 未授权 → 静默清除 token，不硬跳转（避免打断其他页面的正常使用）
+    if (error.response?.status === 401) {
+      localStorage.removeItem('autogeo_token')
+      localStorage.removeItem('autogeo_user')
+      // 不弹 ElMessage，不硬跳转，只静默清除
+      return Promise.reject(error)
+    }
+
     console.error('响应错误:', error)
     const message = error.response?.data?.detail || error.response?.data?.message || error.message || '请求失败'
-    
+
     // 如果是 500 错误，在控制台详细打印以便调试
     if (error.response?.status === 500) {
         console.error("🚨 后端 500 错误详情:", error.response.data);
@@ -74,25 +90,89 @@ export const del = <T = any>(url: string, params?: any, config?: AxiosRequestCon
   return request<T>({ method: 'DELETE', url, params, ...config })
 }
 
-// ==================== 1. 账号管理 API (重点修复区域) ====================
+// ==================== 1. 账号管理 API — 全面增强版 ====================
 export const accountApi = {
-  // 获取列表
+  // ---------- 基础 CRUD ----------
+  // 获取列表（支持分页、平台/状态/分组/标签筛选）
   getList: (params?: any) => get('/accounts', params),
 
+  // 获取详情
+  getDetail: (id: number) => get(`/accounts/${id}`),
+
+  // 创建账号
+  create: (data: any) => post('/accounts', data),
+
+  // 更新账号（名称/状态/备注/分组/标签）
+  update: (id: number, data: any) => put(`/accounts/${id}`, data),
+
+  // 删除账号（默认软删除）
+  delete: (id: number, hard: boolean = false) => del(`/accounts/${id}`, { hard }),
+
+  // ---------- 授权流程 ----------
   // 发起授权 (启动浏览器)
   startAuth: (data: any) => post('/accounts/auth/start', data),
 
-  // 🌟 [新增] 查询授权状态 (AccountList.vue 轮询需要)
+  // 查询授权状态 (轮询)
   getAuthStatus: (taskId: string) => get(`/accounts/auth/status/${taskId}`),
 
-  // 🌟 [新增] 更新账号备注/名称
-  update: (id: number, data: any) => put(`/accounts/${id}`, data),
+  // 保存授权结果
+  saveAuth: (taskId: string, accountId: number) => post(`/accounts/auth/save/${taskId}`, { account_id: accountId }),
 
-  // 🌟 [新增] 删除账号 (修复之前的报错)
-  delete: (id: number) => del(`/accounts/${id}`),
+  // 确认授权完成
+  confirmAuth: (taskId: string) => post(`/accounts/auth/confirm/${taskId}`),
 
+  // 取消授权任务
+  cancelAuth: (taskId: string) => del(`/accounts/auth/task/${taskId}`),
+
+  // ---------- 检测 ----------
   // 检测所有账号授权状态
-  checkAll: () => post('/accounts/check/all')
+  checkAll: () => post('/accounts/check/all'),
+
+  // ---------- 分组管理 ----------
+  // 获取分组列表
+  getGroups: () => get('/accounts/groups/list'),
+
+  // 创建分组
+  createGroup: (data: { name: string; icon?: string; color?: string }) => post('/accounts/groups', data),
+
+  // 更新分组
+  updateGroup: (id: number, data: any) => put(`/accounts/groups/${id}`, data),
+
+  // 删除分组
+  deleteGroup: (id: number) => del(`/accounts/groups/${id}`),
+
+  // ---------- 批量操作 ----------
+  // 批量更新状态
+  batchStatus: (accountIds: number[], status: number) =>
+    post('/accounts/batch/status', { account_ids: accountIds, status }),
+
+  // 批量删除
+  batchDelete: (accountIds: number[]) =>
+    post('/accounts/batch/delete', { account_ids: accountIds }),
+
+  // 批量移动分组
+  batchMoveGroup: (accountIds: number[], groupId: number | null) =>
+    post('/accounts/batch/move-group', { account_ids: accountIds, group_id: groupId }),
+
+  // 批量检测
+  batchCheck: (accountIds: number[]) =>
+    post('/accounts/batch/check', { account_ids: accountIds }),
+
+  // 批量导入
+  batchImport: (accounts: any[]) =>
+    post('/accounts/import', { accounts }),
+
+  // 导出 CSV
+  exportCsv: () => get('/accounts/export'),
+
+  // ---------- 过期预警 ----------
+  // 获取即将过期的账号
+  getExpiring: (days: number = 7) => get('/accounts/expiring/list', { days }),
+
+  // ---------- 操作日志 ----------
+  // 获取操作日志
+  getLogs: (params?: { account_id?: number; page?: number; limit?: number }) =>
+    get('/accounts/logs/list', params),
 }
 
 // ==================== 2. GEO 关键词 API ====================
@@ -107,7 +187,12 @@ export const geoKeywordApi = {
   createKeyword: (projectId: number, data: any) => post(`/keywords/projects/${projectId}/keywords`, data),
   
   distill: (data: any) => post('/keywords/distill', data),
-  generateQuestions: (data: any) => post('/keywords/generate-questions', data)
+  generateQuestions: (data: any) => post('/keywords/generate-questions', data),
+  getKeywordQuestions: (keywordId: number) => get(`/keywords/${keywordId}/questions`),
+
+  // 关键词删除
+  deleteKeyword: (keywordId: number) => del(`/keywords/${keywordId}`),
+  deleteAllKeywords: (projectId: number) => del(`/keywords/projects/${projectId}/keywords`),
 }
 
 // ==================== 3. GEO 文章 API ====================
@@ -298,7 +383,14 @@ export const clientApi = {
   getStats: () => get<any>('/clients/stats/overview'),
 
   // 获取行业列表
-  getIndustries: () => get<any>('/clients/indicators/list')
+  getIndustries: () => get<any>('/clients/indicators/list'),
+
+  // 上传客户资料到RAGFlow知识库
+  uploadFiles: (formData: FormData) =>
+    post<any>('/knowledge/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000
+    })
 }
 
 // ==================== 9. 自动发布任务 API ====================
@@ -343,7 +435,35 @@ export const autoPublishApi = {
   retry: (taskId: number) => post(`/auto-publish/tasks/${taskId}/retry`)
 }
 
-// ==================== 10. 健康检查 API ====================
+// ==================== 10. 后台智能体对话 API ====================
+export interface ConversationMessage {
+  message: string
+  session_id?: string
+}
+
+export interface ConversationResult {
+  success: boolean
+  status: string
+  reply: string
+  conversation_id: string
+  trace_id: string
+  intent: string
+  need_user_input: boolean
+  next_questions: string[]
+  task_id?: number | null
+  article_id?: number | null
+  params: Record<string, any>
+  context: Record<string, any>
+}
+
+export const conversationApi = {
+  sendMessage: (data: ConversationMessage) =>
+    post<ConversationResult>('/conversation/message', data),
+  getSession: (sessionId: string) =>
+    get<any>(`/conversation/sessions/${sessionId}`)
+}
+
+// ==================== 11. 健康检查 API ====================
 export interface HealthStatus {
   status: 'ok' | 'degraded' | 'error'
   timestamp: string
@@ -359,7 +479,7 @@ export const systemApi = {
   getHealth: () => get<HealthStatus>('/health')
 }
 
-// ==================== 11. 知识库 API ====================
+// ==================== 12. 知识库 API ====================
 export const knowledgeApi = {
   // 企业分类
   getCategories: (params?: { keyword?: string }) => get<any>('/knowledge/categories', params),
@@ -413,6 +533,7 @@ export const api = {
   scheduler: schedulerApi,
   publish: publishApi,
   autoPublish: autoPublishApi,
+  conversation: conversationApi,
   system: systemApi,
   knowledge: knowledgeApi
 }

@@ -5,6 +5,8 @@ Playwright发布适配器
 """
 
 from abc import ABC, abstractmethod
+import html
+import re
 from typing import Dict, Any, Optional
 from playwright.async_api import Page
 from loguru import logger
@@ -95,6 +97,80 @@ class BasePublisher(ABC):
         except Exception as e:
             logger.error(f"填充正文失败: {e}")
             return False
+
+    def extract_image_urls(self, content: str) -> list[str]:
+        """
+        从 Markdown/HTML 内容中提取图片 URL。
+        文章生成模块目前主要输出 Markdown 图片语法，发布器不能只识别 <img>。
+        """
+        if not content:
+            return []
+
+        urls: list[str] = []
+        for match in re.findall(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", content):
+            urls.append(match.strip())
+
+        for match in re.findall(r"<img[^>]+src=[\"']([^\"']+)[\"']", content, flags=re.IGNORECASE):
+            urls.append(html.unescape(match.strip()))
+
+        deduped: list[str] = []
+        seen = set()
+        for url in urls:
+            if url and url not in seen:
+                deduped.append(url)
+                seen.add(url)
+        return deduped
+
+    def markdown_to_plain_text(self, content: str, drop_first_h1: bool = True) -> str:
+        """
+        将 Markdown/简单 HTML 清理成适合平台编辑器粘贴的正文。
+        这里输出纯文本，避免平台不解析 Markdown 时把 #、**、![图](url) 原样发布出去。
+        """
+        if not content:
+            return ""
+
+        text = content
+        text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", text)
+
+        text = re.sub(r"<h[1-6][^>]*>(.*?)</h[1-6]>", r"\n\n\1\n\n", text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"<li[^>]*>(.*?)</li>", r"\n- \1", text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = html.unescape(text)
+
+        lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                lines.append("")
+                continue
+
+            heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+            if heading:
+                if drop_first_h1 and not lines and len(heading.group(1)) == 1:
+                    continue
+                line = heading.group(2).strip()
+
+            line = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
+            line = re.sub(r"__(.*?)__", r"\1", line)
+            line = re.sub(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", r"\1", line)
+            line = re.sub(r"`([^`]+)`", r"\1", line)
+            line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+            lines.append(line)
+
+        cleaned: list[str] = []
+        prev_empty = False
+        for line in lines:
+            if not line:
+                if not prev_empty:
+                    cleaned.append("")
+                prev_empty = True
+            else:
+                cleaned.append(line)
+                prev_empty = False
+
+        return "\n".join(cleaned).strip()
 
     async def click_publish_button(self, page: Page, publish_selector: str) -> bool:
         """

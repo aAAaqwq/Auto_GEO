@@ -151,6 +151,13 @@ def init_db():
         AutoPublishRecord,
         SiteProject,
         SystemConfig,
+        AccountGroup,
+        AccountOperationLog,
+        FeishuUserBinding,
+        FeishuEvent,
+        KeywordUsageRecord,
+        ProjectMember,
+        FeishuBindingCode,
     )
 
     # 获取已存在的表名用于对比

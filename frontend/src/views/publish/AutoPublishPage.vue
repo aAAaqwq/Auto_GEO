@@ -476,12 +476,29 @@ const createTask = async () => {
     try {
       // 将平台列表转换为账号列表
       const accountIds: number[] = []
+      const platformWithoutAccounts: string[] = []
       createForm.value.platforms.forEach(platform => {
         const platformAccounts = availableAccounts.value
           .filter((a: any) => a.platform === platform)
           .map((a: any) => a.id)
+        if (platformAccounts.length === 0) {
+          platformWithoutAccounts.push(PLATFORMS[platform]?.name || platform)
+        }
         accountIds.push(...platformAccounts)
       })
+
+      // 校验：至少有一个平台有可用账号
+      if (platformWithoutAccounts.length > 0) {
+        ElMessage.warning(`以下平台没有可用账号，请先授权账号: ${platformWithoutAccounts.join('、')}`)
+        creating.value = false
+        return
+      }
+
+      if (accountIds.length === 0) {
+        ElMessage.warning('所选平台暂无可用账号，请先在「账号管理」中完成授权')
+        creating.value = false
+        return
+      }
 
       await autoPublishApi.create({
         name: createForm.value.name,
@@ -699,7 +716,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #1e1e1e;
+  background: var(--surface-base);
   padding: 24px;
 }
 

@@ -5,6 +5,13 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import {
+  login as apiLogin,
+  logout as apiLogout,
+  getCurrentUser as apiGetCurrentUser,
+  changePassword as apiChangePassword,
+  updateProfile as apiUpdateProfile,
+} from '@/services/userApi'
 
 // 本地存储键名
 const TOKEN_KEY = 'autogeo_token'
@@ -92,13 +99,11 @@ export const useUserStore = defineStore('user', () => {
     error.value = null
 
     try {
-      const response = await fetch('/api/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
+      const data = await apiLogin({
+        username: credentials.username,
+        password: credentials.password,
+        remember: credentials.remember,
       })
-
-      const data = await response.json()
 
       if (data.success && data.data?.access_token) {
         // 保存令牌
@@ -129,12 +134,7 @@ export const useUserStore = defineStore('user', () => {
   async function logout(): Promise<void> {
     try {
       // 调用后端登出接口（可选）
-      await fetch('/api/users/logout', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token.value}`,
-        },
-      })
+      await apiLogout()
     } catch {
       // 忽略错误
     } finally {
@@ -156,13 +156,7 @@ export const useUserStore = defineStore('user', () => {
     if (!token.value) return false
 
     try {
-      const response = await fetch('/api/users/me', {
-        headers: {
-          'Authorization': `Bearer ${token.value}`,
-        },
-      })
-
-      const data = await response.json()
+      const data = await apiGetCurrentUser()
 
       if (data.success && data.data) {
         user.value = data.data
@@ -192,16 +186,11 @@ export const useUserStore = defineStore('user', () => {
     loading.value = true
 
     try {
-      const response = await fetch('/api/users/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token.value}`,
-        },
-        body: JSON.stringify(userData),
+      const data = await apiUpdateProfile({
+        nickname: userData.nickname,
+        email: userData.email,
+        avatar: userData.avatar,
       })
-
-      const data = await response.json()
 
       if (data.success && data.data) {
         user.value = { ...user.value!, ...data.data }
@@ -228,16 +217,7 @@ export const useUserStore = defineStore('user', () => {
     loading.value = true
 
     try {
-      const response = await fetch('/api/users/me/password', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token.value}`,
-        },
-        body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-      })
-
-      const data = await response.json()
+      const data = await apiChangePassword(oldPassword, newPassword)
 
       if (data.success) {
         return { success: true, message: '密码修改成功' }

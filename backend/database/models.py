@@ -14,7 +14,7 @@ TABLE_ARGS = {"extend_existing": True}
 
 
 class Account(Base):
-    """账号表"""
+    """账号表 — 第三方平台账号（知乎/百家号/头条等）"""
 
     __tablename__ = "accounts"
     __table_args__ = TABLE_ARGS
@@ -26,14 +26,36 @@ class Account(Base):
     cookies = Column(Text, nullable=True)
     storage_state = Column(Text, nullable=True)
     user_agent = Column(String(500), nullable=True)
-    status = Column(Integer, default=1)
+    status = Column(Integer, default=1, comment="状态：1=正常 0=禁用 -1=授权过期")
     last_auth_time = Column(DateTime, nullable=True)
     remark = Column(Text, nullable=True)
+
+    # 用户隔离（迁移 0002 添加，此处补齐 ORM 声明）
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True, comment="所属系统用户ID")
+
+    # 软删除
+    deleted_at = Column(DateTime, nullable=True, comment="软删除时间")
+
+    # 分组与标签（Phase 2）
+    group_id = Column(Integer, ForeignKey("account_groups.id", ondelete="SET NULL"), nullable=True, index=True, comment="账号分组ID")
+    tags = Column(JSON, nullable=True, comment="标签列表，如 ['主账号', '高权重']")
+
+    # 健康度（Phase 3）
+    health_score = Column(Integer, default=100, comment="健康度评分 0-100，100=最佳")
+    last_check_time = Column(DateTime, nullable=True, comment="最后健康检测时间")
+    auth_expires_at = Column(DateTime, nullable=True, comment="预估授权过期时间")
+
+    # 浏览器类型（Phase 6）
+    browser_type = Column(String(20), default="playwright", comment="浏览器类型：playwright/adspower")
+    adspower_profile_id = Column(String(100), nullable=True, comment="AdsPower 配置文件ID")
+
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # 关联关系
     publish_records = relationship("PublishRecord", back_populates="account", cascade="all, delete-orphan")
+    owner = relationship("User", backref="accounts", foreign_keys=[user_id])
+    group = relationship("AccountGroup", back_populates="accounts", foreign_keys=[group_id])
 
 
 class ScheduledTask(Base):
@@ -207,6 +229,7 @@ class Keyword(Base):
     )
     keyword = Column(String(200), nullable=False, comment="关键词")
     difficulty_score = Column(Integer, nullable=True, comment="难度评分（0-100）")
+    keyword_type = Column(String(20), default="keyword", comment="类型：keyword=关键词 question=搜索问题")
 
     # 状态
     status = Column(String(20), default="active", comment="状态：active=活跃 inactive=停用")
@@ -334,6 +357,11 @@ class GeoArticle(Base):
     index_status = Column(String(20), default="uncheck")
     last_check_time = Column(DateTime, nullable=True)
     index_details = Column(Text, nullable=True)
+
+    # 质量风险评估（Phase 5 质量检查流水线）
+    fact_risk_score = Column(Integer, nullable=True, comment="事实风险评估 0-100，越低越安全")
+    duplication_score = Column(Integer, nullable=True, comment="与历史文章重复度 0-100，越低越原创")
+    platform_risk_score = Column(Integer, nullable=True, comment="平台合规风险 0-100，越低越安全")
 
     # 时间戳
     created_at = Column(DateTime, default=func.now(), comment="创建时间")
@@ -754,6 +782,20 @@ class AutoPublishTask(Base):
     # 发布选项
     declare_ai_content = Column(Boolean, default=True, comment="是否勾选AI创作内容声明")
 
+    # 触发信息
+    triggered_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="触发此任务的系统用户ID",
+    )
+    feishu_event_id = Column(
+        String(200),
+        nullable=True,
+        comment="关联的飞书事件ID（可追溯）",
+    )
+
     # 任务状态
     status = Column(
         String(20),
@@ -852,3 +894,420 @@ class AutoPublishRecord(Base):
 
     def __repr__(self):
         return f"<AutoPublishRecord task_id={self.task_id} article_id={self.article_id} status={self.status}>"
+
+
+# ==================== 账号分组表 ====================
+
+
+class AccountGroup(Base):
+    """
+    账号分组表
+    用于对平台账号进行分组管理
+    """
+
+    __tablename__ = "account_groups"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    name = Column(String(100), nullable=False, comment="分组名称")
+    icon = Column(String(50), nullable=True, comment="分组图标")
+    color = Column(String(20), default="#409EFF", comment="分组颜色")
+
+    # 归属用户
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True, comment="所属用户ID"
+    )
+
+    # 排序与状态
+    sort_order = Column(Integer, default=0, comment="排序权重（越小越靠前）")
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
+
+    # 关联关系
+    accounts = relationship("Account", back_populates="group", foreign_keys="Account.group_id")
+    owner = relationship("User", backref="account_groups", foreign_keys=[user_id])
+
+    def __repr__(self):
+        return f"<AccountGroup {self.name} (user_id={self.user_id})>"
+
+
+# ==================== 账号操作日志表 ====================
+
+
+class AccountOperationLog(Base):
+    """
+    账号操作日志表
+    记录对平台账号的所有关键操作
+    """
+
+    __tablename__ = "account_operation_logs"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    # 关联账号和用户
+    account_id = Column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True, index=True, comment="账号ID"
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True, comment="操作用户ID"
+    )
+
+    # 操作类型
+    operation = Column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="操作类型：create/update/delete/auth_start/auth_success/auth_fail/check_pass/check_fail",
+    )
+
+    # 操作详情
+    detail = Column(JSON, nullable=True, comment="操作详情（JSON）")
+    ip_address = Column(String(50), nullable=True, comment="操作IP地址")
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now(), comment="操作时间")
+
+    # 关联关系
+    account = relationship("Account", backref="operation_logs")
+    user = relationship("User", backref="account_operation_logs")
+
+    def __repr__(self):
+        return f"<AccountOperationLog {self.operation} account_id={self.account_id}>"
+
+
+# ==================== 飞书用户绑定表 ====================
+
+
+class FeishuUserBinding(Base):
+    """
+    飞书用户绑定表
+    将飞书 open_id 映射到系统用户，实现用户级闭环
+    """
+
+    __tablename__ = "feishu_user_bindings"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    # 飞书身份
+    open_id = Column(String(200), nullable=False, unique=True, index=True, comment="飞书用户 open_id")
+    union_id = Column(String(200), nullable=True, comment="飞书 union_id（跨应用统一标识）")
+
+    # 系统用户绑定
+    system_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="绑定的系统用户ID",
+    )
+
+    # 默认配置
+    default_client_id = Column(
+        Integer,
+        ForeignKey("clients.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="默认客户ID",
+    )
+    default_project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="默认项目ID",
+    )
+
+    # 状态
+    status = Column(Integer, default=1, comment="绑定状态：1=已绑定 0=已解绑")
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now(), comment="绑定时间")
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
+
+    # 关联关系
+    user = relationship("User", backref="feishu_bindings", foreign_keys=[system_user_id])
+
+    def __repr__(self):
+        return f"<FeishuUserBinding open_id={self.open_id} user_id={self.system_user_id}>"
+
+
+# ==================== 飞书事件表 ====================
+
+
+class FeishuEvent(Base):
+    """
+    飞书事件持久化表
+    记录所有从飞书接收到的 Webhook 事件，用于幂等去重和排查
+    """
+
+    __tablename__ = "feishu_events"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    # 事件标识
+    event_id = Column(String(200), nullable=False, unique=True, index=True, comment="飞书事件唯一ID")
+    message_id = Column(String(200), nullable=True, comment="飞书消息ID")
+
+    # 来源信息
+    open_id = Column(String(200), nullable=True, index=True, comment="发送者 open_id")
+    chat_id = Column(String(200), nullable=True, comment="会话ID")
+    event_type = Column(String(100), nullable=True, comment="事件类型")
+
+    # 原始数据
+    raw_payload = Column(Text, nullable=True, comment="原始请求体（JSON）")
+    raw_text = Column(Text, nullable=True, comment="提取的用户消息文本")
+
+    # 处理状态
+    status = Column(
+        String(20),
+        default="received",
+        comment="处理状态：received=已接收 processing=处理中 processed=已处理 error=处理失败",
+    )
+    error_msg = Column(Text, nullable=True, comment="处理错误信息")
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now(), comment="接收时间")
+    processed_at = Column(DateTime, nullable=True, comment="处理完成时间")
+
+    def __repr__(self):
+        return f"<FeishuEvent event_id={self.event_id} status={self.status}>"
+
+
+# ==================== 关键词使用记录表 ====================
+
+
+class KeywordUsageRecord(Base):
+    """
+    关键词使用记录表
+    追踪关键词被用于文章生成的历史，支持加权随机选择时的新鲜度惩罚
+    """
+
+    __tablename__ = "keyword_usage_records"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    # 关联信息
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目ID",
+    )
+    keyword_id = Column(
+        Integer,
+        ForeignKey("keywords.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="关键词ID",
+    )
+    keyword_text = Column(String(200), nullable=False, comment="关键词文本（冗余字段，方便查询）")
+
+    # 文章关联
+    article_id = Column(
+        Integer,
+        ForeignKey("geo_articles.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="生成的文章ID",
+    )
+
+    # 来源与操作人
+    source = Column(String(50), default="auto", comment="使用来源：feishu=飞书触发 manual=手动 api=API auto=自动调度")
+    used_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="触发使用的用户ID",
+    )
+
+    # 时间戳
+    used_at = Column(DateTime, default=func.now(), comment="使用时间")
+
+    def __repr__(self):
+        return f"<KeywordUsageRecord keyword={self.keyword_text} article_id={self.article_id}>"
+
+
+# ==================== 项目成员表 ====================
+
+
+class ProjectMember(Base):
+    """
+    项目成员表
+    记录用户对项目的权限，支持团队协作场景
+    """
+
+    __tablename__ = "project_members"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="项目ID",
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="用户ID",
+    )
+
+    role = Column(
+        String(20),
+        default="owner",
+        comment="角色：owner=拥有者 editor=编辑者 viewer=观察者",
+    )
+    status = Column(Integer, default=1, comment="状态：1=正常 0=已移除")
+
+    created_at = Column(DateTime, default=func.now(), comment="添加时间")
+
+    # 关联关系
+    project = relationship("Project", backref="members")
+    user = relationship("User", backref="project_memberships")
+
+    def __repr__(self):
+        return f"<ProjectMember project_id={self.project_id} user_id={self.user_id} role={self.role}>"
+
+
+# ==================== Agent 会话记忆表 ====================
+
+
+class ConversationSession(Base):
+    """
+    Agent 会话表
+    保存后台/Web/外部平台对话的结构化任务状态。
+    """
+
+    __tablename__ = "conversation_sessions"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(String(120), primary_key=True, comment="会话ID")
+    source = Column(String(50), default="web", index=True, comment="来源：web/feishu/openclaw")
+    channel = Column(String(50), default="web", index=True, comment="通道：web/feishu/other")
+    system_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="系统用户ID",
+    )
+    external_user_id = Column(String(200), nullable=True, index=True, comment="外部用户ID")
+    external_chat_id = Column(String(200), nullable=True, index=True, comment="外部会话ID")
+    status = Column(
+        String(30),
+        default="active",
+        index=True,
+        comment="active/waiting_user/running/confirm_required/completed/failed/cancelled",
+    )
+    current_intent = Column(String(80), nullable=True, index=True, comment="当前意图")
+    slots = Column(JSON, nullable=True, comment="结构化任务槽位")
+    summary = Column(Text, nullable=True, comment="会话摘要")
+    created_at = Column(DateTime, default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
+    expires_at = Column(DateTime, nullable=True, comment="过期时间")
+
+    user = relationship("User", backref="conversation_sessions", foreign_keys=[system_user_id])
+    messages = relationship(
+        "ConversationMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    def __repr__(self):
+        return f"<ConversationSession id={self.id} user_id={self.system_user_id} status={self.status}>"
+
+
+class ConversationMessage(Base):
+    """
+    Agent 消息表
+    保存完整 message history，用于回放、审计和后续 LLM 上下文。
+    """
+
+    __tablename__ = "conversation_messages"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+    conversation_id = Column(
+        String(120),
+        ForeignKey("conversation_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="会话ID",
+    )
+    role = Column(String(30), nullable=False, index=True, comment="user/assistant/system/tool")
+    content = Column(Text, nullable=False, comment="消息内容")
+    message_metadata = Column(JSON, nullable=True, comment="消息元数据")
+    created_at = Column(DateTime, default=func.now(), index=True, comment="创建时间")
+
+    session = relationship("ConversationSession", back_populates="messages")
+
+    def __repr__(self):
+        return f"<ConversationMessage conversation_id={self.conversation_id} role={self.role}>"
+
+
+# ==================== 飞书绑定码表 ====================
+
+
+class FeishuBindingCode(Base):
+    """
+    飞书绑定码表
+    临时绑定码，用户在管理后台生成后通过飞书发送完成绑定
+    """
+
+    __tablename__ = "feishu_binding_codes"
+    __table_args__ = TABLE_ARGS
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="主键ID")
+
+    code = Column(
+        String(20),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="绑定码（6位随机字符）",
+    )
+
+    system_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="待绑定的系统用户ID",
+    )
+
+    status = Column(
+        Integer,
+        default=0,
+        comment="状态：0=待使用 1=已使用 -1=已过期",
+    )
+
+    used_by_open_id = Column(
+        String(200),
+        nullable=True,
+        comment="使用此码的飞书 open_id",
+    )
+
+    expires_at = Column(
+        DateTime,
+        nullable=False,
+        comment="过期时间（生成后30分钟有效）",
+    )
+
+    created_at = Column(DateTime, default=func.now(), comment="生成时间")
+    used_at = Column(DateTime, nullable=True, comment="使用时间")
+
+    # 关联关系
+    user = relationship("User", backref="feishu_binding_codes", foreign_keys=[system_user_id])
+
+    def __repr__(self):
+        return f"<FeishuBindingCode code={self.code} user_id={self.system_user_id} status={self.status}>"
