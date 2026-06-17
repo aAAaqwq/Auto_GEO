@@ -252,88 +252,139 @@
                 </div>
               </div>
             </TransitionGroup>
-          </div>
-        </div>
-      </aside>
 
-      <!-- 右侧 - 已保存关键词 -->
-      <main class="keywords-main">
-        <div class="keywords-header">
-          <div class="header-left">
-            <h3 class="keywords-title">已保存的关键词</h3>
-            <span class="keywords-count">{{ keywords.length }} 个</span>
-          </div>
-          <div class="view-toggle">
-            <button
-              :class="{ active: viewMode === 'grid' }"
-              @click="viewMode = 'grid'"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" width="16">
-                <path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/>
-              </svg>
-            </button>
-            <button
-              :class="{ active: viewMode === 'list' }"
-              @click="viewMode = 'list'"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" width="16">
-                <path fill-rule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- 关键词列表 -->
-        <div v-loading="loading" class="keywords-container" :class="viewMode">
-          <!-- 空状态 -->
-          <div v-if="!loading && keywords.length === 0" class="empty-keywords">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-            </svg>
-            <p>选择项目后，在左侧蒸馏面板开始蒸馏</p>
           </div>
 
-          <!-- 关键词网格 -->
-          <TransitionGroup v-else name="keyword" tag="div" class="keywords-grid">
-            <div
-              v-for="keyword in keywords"
-              :key="keyword.id"
-              class="keyword-card"
-              @click="viewDetail(keyword)"
-            >
-              <div class="card-header">
-                <h4 class="keyword-text">{{ keyword.keyword }}</h4>
-                <div v-if="keyword.difficulty_score" class="difficulty-badge" :class="getDifficultyClass(keyword.difficulty_score)">
-                  {{ keyword.difficulty_score }}
-                </div>
+            <!-- 搜索短语（问题列表）- 独立滚动区域 -->
+            <div v-if="distillQuestions.length > 0" class="questions-section-global">
+              <div class="questions-section-header">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="14">
+                  <path d="M2 0a2 2 0 00-2 2v8a2 2 0 002 2h2v2.5a.5.5 0 00.854.354L8.56 12H14a2 2 0 002-2V2a2 2 0 00-2-2H2z"/>
+                </svg>
+                搜索短语 ({{ distillQuestions.length }})
               </div>
-              <div class="card-body">
-                <div class="questions-preview">
-                  <svg viewBox="0 0 16 16" fill="currentColor" width="12">
-                    <path d="M8 1a4 4 0 00-4 4v2H2v2h2v6a2 2 0 002 2h4a2 2 0 002-2V9h2V7h-2V5a4 4 0 00-4-4zm0 2a2 2 0 012 2v2H6V5a2 2 0 012-2z"/>
-                  </svg>
-                  <span>{{ getQuestionCount(keyword.id) }} 个问题变体</span>
-                </div>
-                <div class="card-actions">
-                  <button class="action-btn view" @click.stop="viewDetail(keyword)">
-                    <svg viewBox="0 0 16 16" fill="currentColor" width="14">
-                      <path d="M10.5 8a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/>
-                      <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z"/>
-                    </svg>
-                    查看
-                  </button>
-                  <button class="action-btn delete" @click.stop="deleteKeyword(keyword)">
-                    <svg viewBox="0 0 16 16" fill="currentColor" width="14">
-                      <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
-                      <path fill-rule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1-1V2a1 1 0 011-1H6a1 1 0 011-1h2a1 1 0 011 1h3.5a1 1 0 011 1v1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-                    </svg>
-                  </button>
+              <div class="questions-list-global">
+                <div
+                  v-for="(q, index) in distillQuestions"
+                  :key="index"
+                  class="question-item-global"
+                >
+                  <span class="q-number">{{ index + 1 }}</span>
+                  <span class="q-text">{{ q }}</span>
                 </div>
               </div>
             </div>
-          </TransitionGroup>
-        </div>
-      </main>
+          </div>
+      </aside>
+
+      <!-- 右侧 - 双列布局：核心关键词 + 搜索问题 -->
+      <div class="keywords-split-area">
+        <!-- 左列 - 核心关键词 -->
+        <section class="keywords-column">
+          <div class="column-header">
+            <div class="column-header-left">
+              <div class="column-icon keyword-icon">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="16">
+                  <path d="M6.5 2a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1zm3 0a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-1a.5.5 0 01-.5-.5v-1a.5.5 0 01.5-.5h1z"/>
+                  <path d="M8 16A8 8 0 108 0a8 8 0 000 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 110-2 1 1 0 010 2z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="column-title">核心关键词</h3>
+                <span class="column-count">{{ coreKeywords.length }} 个</span>
+              </div>
+            </div>
+            <div class="column-header-right">
+              <button
+                v-if="keywords.length > 0"
+                class="delete-all-btn"
+                title="一键清空当前项目的所有关键词"
+                @click="deleteAllKeywords"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" width="14">
+                  <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
+                  <path fill-rule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1-1V2a1 1 0 011-1H6a1 1 0 011-1h2a1 1 0 011 1h3.5a1 1 0 011 1v1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                </svg>
+                一键清空全部
+              </button>
+            </div>
+          </div>
+          <div v-loading="loading" class="column-body">
+            <div v-if="!loading && coreKeywords.length === 0" class="column-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+              </svg>
+              <p>暂无核心关键词</p>
+            </div>
+            <TransitionGroup v-else name="keyword" tag="div" class="keywords-grid-column">
+              <div
+                v-for="keyword in coreKeywords"
+                :key="keyword.id"
+                class="keyword-card"
+                @click="viewDetail(keyword)"
+              >
+                <div class="card-header">
+                  <h4 class="keyword-text">{{ keyword.keyword }}</h4>
+                  <div v-if="keyword.difficulty_score" class="difficulty-badge" :class="getDifficultyClass(keyword.difficulty_score)">
+                    {{ keyword.difficulty_score }}
+                  </div>
+                </div>
+                <div class="card-actions">
+                  <button class="action-btn view" @click.stop="viewDetail(keyword)">查看</button>
+                  <button class="action-btn delete" @click.stop="deleteKeyword(keyword)">
+                    <svg viewBox="0 0 16 16" fill="currentColor" width="12">
+                      <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </TransitionGroup>
+          </div>
+        </section>
+
+        <!-- 右列 - 搜索问题 -->
+        <section class="questions-column">
+          <div class="column-header">
+            <div class="column-header-left">
+              <div class="column-icon question-icon">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="16">
+                  <path d="M2 0a2 2 0 00-2 2v8a2 2 0 002 2h2v2.5a.5.5 0 00.854.354L8.56 12H14a2 2 0 002-2V2a2 2 0 00-2-2H2z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="column-title">搜索问题</h3>
+                <span class="column-count">{{ questionKeywords.length }} 个</span>
+              </div>
+            </div>
+          </div>
+          <div v-loading="loading" class="column-body">
+            <div v-if="!loading && questionKeywords.length === 0" class="column-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+              </svg>
+              <p>暂无搜索问题</p>
+            </div>
+            <TransitionGroup v-else name="question-card" tag="div" class="questions-grid-column">
+              <div
+                v-for="q in questionKeywords"
+                :key="q.id"
+                class="question-card"
+              >
+                <div class="question-card-body">
+                  <span class="question-text">{{ q.keyword }}</span>
+                </div>
+                <div class="question-card-actions">
+                  <button class="action-btn delete" @click.stop="deleteKeyword(q)">
+                    <svg viewBox="0 0 16 16" fill="currentColor" width="12">
+                      <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </TransitionGroup>
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- 详情对话框 -->
@@ -415,6 +466,7 @@ interface Keyword {
   keyword: string
   difficulty_score?: number
   status: string
+  keyword_type?: string  // "keyword" or "question"
 }
 
 interface QuestionVariant {
@@ -454,6 +506,7 @@ const distillForm = ref({
 })
 
 const results = ref<DistillResult[]>([])
+const distillQuestions = ref<string[]>([])
 
 // ==================== 计算属性 ====================
 // 🌟 有效项目列表（过滤掉没有 id 的项目，防止 el-option 报错）
@@ -493,6 +546,15 @@ const canDistill = computed(() => {
 
 const hasUnsaved = computed(() => {
   return results.value.some(r => !r.saved)
+})
+
+// 按 keyword_type 拆分关键词和搜索问题
+const coreKeywords = computed(() => {
+  return keywords.value.filter(k => k.keyword_type !== 'question')
+})
+
+const questionKeywords = computed(() => {
+  return keywords.value.filter(k => k.keyword_type === 'question')
 })
 
 const currentQuestions = computed(() => {
@@ -543,6 +605,7 @@ const handleProjectChange = () => {
     distillForm.value.suffixes = ''
   }
   results.value = []
+  distillQuestions.value = []
   loadProjectKeywords()
 }
 
@@ -574,22 +637,22 @@ const startDistill = async () => {
 
     if (result.success && result.data?.keywords) {
       const kwList = result.data.keywords
-      for (const kw of kwList) {
-        const questionsResult = await geoKeywordApi.generateQuestions({
-          keyword_id: kw.id,
-          count: 3,
-        })
 
+      // 展示关键词
+      for (const kw of kwList) {
         results.value.push({
           id: kw.id.toString(),
           keyword: kw.keyword,
-          questions: questionsResult.data?.questions?.map((q: any) => q.question) || [],
+          questions: [],
           saved: true,
         })
       }
 
+      // 展示 n8n 返回的搜索短语（问题列表）
+      distillQuestions.value = result.data.conversion_phrases || []
+
       await loadProjectKeywords()
-      ElMessage.success(`蒸馏完成，生成 ${kwList.length} 个关键词`)
+      ElMessage.success(`蒸馏完成，生成 ${kwList.length} 个关键词、${distillQuestions.value.length} 个搜索短语`)
     } else {
       ElMessage.error(result.message || '蒸馏失败')
     }
@@ -619,6 +682,7 @@ const saveAll = async () => {
 // 清空结果
 const clearResults = () => {
   results.value = []
+  distillQuestions.value = []
 }
 
 // 获取问题数量
@@ -683,7 +747,7 @@ const generateQuestions = async () => {
   }
 }
 
-// 删除关键词
+// 删除单个关键词
 const deleteKeyword = async (keyword: Keyword) => {
   try {
     await ElMessageBox.confirm(
@@ -698,6 +762,34 @@ const deleteKeyword = async (keyword: Keyword) => {
   } catch (error) {
     if (error !== 'cancel') {
       console.error('删除失败:', error)
+    }
+  }
+}
+
+// 一键删除所有关键词
+const deleteAllKeywords = async () => {
+  if (!selectedProjectId.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除当前项目下的<b>所有关键词</b>（包含核心关键词和搜索问题）吗？<br/><br/>此操作不可恢复，请谨慎操作！`,
+      '一键清空确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确定清空全部',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: true,
+        confirmButtonClass: 'el-button--danger',
+      }
+    )
+
+    await geoKeywordApi.deleteAllKeywords(selectedProjectId.value)
+    keywords.value = []
+    ElMessage.success('所有关键词已清空')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清空关键词失败:', error)
+      ElMessage.error('清空失败，请稍后重试')
     }
   }
 }
@@ -721,24 +813,31 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
+/* ================================================================
+   Keywords — Warm Studio Design
+   Uses global tokens for consistency.
+   ================================================================ */
+
 .keywords-page {
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 24px;
-  background: linear-gradient(135deg, #f8f9fc 0%, #f0f2f8 100%);
+  background: transparent;
 }
 
-// 头部
+// ---- Header ----
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  background: white;
-  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(125, 190, 138, 0.04), transparent 60%),
+    var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
   margin-bottom: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 
   .header-left {
     display: flex;
@@ -749,29 +848,27 @@ onMounted(async () => {
       width: 48px;
       height: 48px;
       border-radius: 12px;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      background: linear-gradient(135deg, var(--success), #5a9e68);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: #fff;
 
-      svg {
-        width: 24px;
-        height: 24px;
-      }
+      svg { width: 24px; height: 24px; }
     }
 
     .page-title {
       margin: 0 0 4px 0;
+      font-family: var(--font-display);
       font-size: 20px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
     .page-desc {
       margin: 0;
       font-size: 13px;
-      color: #9ca3af;
+      color: var(--text-muted);
     }
   }
 
@@ -780,30 +877,19 @@ onMounted(async () => {
     flex-direction: column;
     gap: 2px;
 
-    .option-name {
-      font-size: 14px;
-      color: #1a1f36;
-    }
-
-    .option-company {
-      font-size: 12px;
-      color: #9ca3af;
-    }
+    .option-name { font-size: 14px; color: var(--text-head); }
+    .option-company { font-size: 12px; color: var(--text-muted); }
   }
 
   .project-empty {
     text-align: center;
     padding: 10px;
 
-    p {
-      margin: 0 0 4px 0;
-      font-size: 13px;
-      color: #9ca3af;
-    }
+    p { margin: 0 0 4px 0; font-size: 13px; color: var(--text-muted); }
   }
 }
 
-// 主内容区
+// ---- Main Content ----
 .main-content {
   display: flex;
   gap: 20px;
@@ -811,7 +897,7 @@ onMounted(async () => {
   min-height: 0;
 }
 
-// 左侧蒸馏面板
+// ---- Distill Sidebar ----
 .distill-sidebar {
   width: 380px;
   display: flex;
@@ -823,71 +909,60 @@ onMounted(async () => {
     align-items: center;
     gap: 12px;
     padding: 16px 20px;
+    background:
+      linear-gradient(135deg, rgba(125, 190, 138, 0.05), transparent),
+      var(--surface-raised);
+    border: 1px solid var(--border-thin);
+    border-radius: var(--radius-lg);
 
     .header-icon {
       width: 40px;
       height: 40px;
       border-radius: 10px;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      background: linear-gradient(135deg, var(--success), #5a9e68);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
+      color: #fff;
 
-      svg {
-        width: 20px;
-        height: 20px;
-      }
+      svg { width: 20px; height: 20px; }
     }
 
     .sidebar-title {
       margin: 0;
       font-size: 15px;
       font-weight: 600;
-      color: #1a1f36;
+      color: var(--text-head);
     }
 
-    .sidebar-project {
-      display: block;
-      font-size: 12px;
-      color: #10b981;
-    }
-
-    .sidebar-hint {
-      display: block;
-      font-size: 12px;
-      color: #9ca3af;
-    }
+    .sidebar-project { display: block; font-size: 12px; color: var(--success); font-weight: 500; }
+    .sidebar-hint { display: block; font-size: 12px; color: var(--text-muted); }
   }
 }
 
-// 蒸馏表单
+// ---- Distill Form ----
 .distill-form {
   padding: 20px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
 
-  // 项目同步通知条
   .sync-notice {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 12px 16px;
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    border-radius: 10px;
+    background: var(--success-soft);
+    border: 1px solid rgba(125, 190, 138, 0.18);
+    border-radius: var(--radius-md);
     margin-bottom: 16px;
     font-size: 13px;
-    color: #059669;
+    color: var(--success);
 
-    svg {
-      flex-shrink: 0;
-      color: #10b981;
-    }
+    svg { flex-shrink: 0; color: var(--success); }
   }
 
-  &.disabled {
-    opacity: 0.6;
-    pointer-events: none;
-  }
+  &.disabled { opacity: 0.5; pointer-events: none; }
 
   .form-group {
     margin-bottom: 16px;
@@ -898,7 +973,7 @@ onMounted(async () => {
       gap: 6px;
       font-size: 13px;
       font-weight: 500;
-      color: #374151;
+      color: var(--text-muted);
       margin-bottom: 8px;
     }
 
@@ -908,47 +983,38 @@ onMounted(async () => {
       .form-input {
         width: 100%;
         padding: 12px 90px 12px 14px;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-sm);
         font-size: 14px;
-        background: #ffffff !important;
-        color: #111827 !important;
-        transition: all 0.2s;
+        background: var(--surface-field);
+        color: var(--text-body);
+        transition: all var(--duration-fast);
 
-        &::placeholder {
-          color: #9ca3af !important;
-        }
+        &::placeholder { color: var(--text-disabled); }
 
         &:focus {
           outline: none;
-          border-color: #10b981;
-          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+          border-color: var(--success);
+          box-shadow: 0 0 0 3px var(--success-soft);
         }
 
         &:disabled {
-          background: #f9fafb !important;
-          color: #6b7280 !important;
+          background: rgba(200, 185, 160, 0.04);
+          color: var(--text-disabled);
           cursor: not-allowed;
-        }
-
-        &.synced {
-          background: rgba(16, 185, 129, 0.05);
-          border-color: #10b981;
-          color: #059669;
         }
       }
 
-      // 自动填充标签 - 干净简洁的"来自项目"标签
       .auto-fill-tag {
         position: absolute;
         right: 12px;
         top: 50%;
         transform: translateY(-50%);
         padding: 4px 10px;
-        background: rgba(16, 185, 129, 0.1);
-        border-radius: 6px;
+        background: var(--success-soft);
+        border-radius: var(--radius-sm);
         font-size: 12px;
-        color: #059669;
+        color: var(--success);
         font-weight: 500;
         pointer-events: none;
       }
@@ -960,16 +1026,12 @@ onMounted(async () => {
     align-items: center;
     gap: 8px;
     padding: 12px;
-    background: transparent;
-    border-radius: 10px;
     margin-bottom: 16px;
     font-size: 12px;
-    color: #9ca3af;
-
-    svg {
-      color: #9ca3af;
-      flex-shrink: 0;
-    }
+    color: var(--text-muted);
+    background: rgba(200, 185, 160, 0.03);
+    border-radius: var(--radius-sm);
+    svg { color: var(--text-muted); flex-shrink: 0; }
   }
 
   .distill-btn {
@@ -979,49 +1041,47 @@ onMounted(async () => {
     justify-content: center;
     gap: 10px;
     padding: 14px 24px;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: linear-gradient(135deg, var(--success), #5a9e68);
     border: none;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     font-size: 15px;
-    font-weight: 500;
-    color: white;
+    font-weight: 600;
+    color: #fff;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all var(--duration-normal) var(--ease-out);
+    letter-spacing: 0.02em;
 
     &:hover:not(.disabled) {
       transform: translateY(-1px);
-      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+      box-shadow: 0 6px 20px rgba(125, 190, 138, 0.32);
     }
 
     &.disabled {
-      background: #e5e7eb;
+      background: var(--surface-field);
+      color: var(--text-disabled);
       cursor: not-allowed;
     }
 
-    &.loading {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      opacity: 0.8;
-    }
+    &.loading { opacity: 0.8; }
 
-    .btn-icon svg {
-      width: 18px;
-      height: 18px;
-    }
+    .btn-icon svg { width: 18px; height: 18px; }
 
     .btn-spinner {
       width: 18px;
       height: 18px;
       border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: white;
+      border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
   }
 }
 
-// 蒸馏结果
+// ---- Distill Results ----
 .distill-results {
-  border-radius: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -1030,7 +1090,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--border-thin);
 
   .results-title {
     display: flex;
@@ -1038,17 +1098,11 @@ onMounted(async () => {
     gap: 6px;
     margin: 0;
     font-size: 14px;
-    font-weight: 500;
-    color: #1a1f36;
+    font-weight: 600;
+    color: var(--text-head);
 
-    svg {
-      color: #10b981;
-    }
-
-    .results-count {
-      font-weight: normal;
-      color: #9ca3af;
-    }
+    svg { color: var(--success); }
+    .results-count { font-weight: normal; color: var(--text-muted); }
   }
 
   .results-actions {
@@ -1061,27 +1115,22 @@ onMounted(async () => {
       gap: 4px;
       padding: 6px 12px;
       border: none;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all var(--duration-fast);
 
       &.save-all {
-        background: #4a90e2;
-        color: white;
-
-        &:hover {
-          background: #357abd;
-        }
+        background: var(--accent);
+        color: var(--accent-ink);
+        &:hover { background: var(--accent-hover); }
       }
 
       &.clear {
-        background: #fef2f2;
-        color: #ef4444;
-
-        &:hover {
-          background: #fee2e2;
-        }
+        background: var(--danger-soft);
+        color: var(--danger);
+        &:hover { background: rgba(224, 115, 99, 0.22); }
       }
     }
   }
@@ -1098,27 +1147,25 @@ onMounted(async () => {
   align-items: flex-start;
   gap: 12px;
   padding: 14px;
-  background: #f9fafb;
-  border-radius: 10px;
+  background: var(--surface-field);
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
   border-left: 3px solid transparent;
-  transition: all 0.2s;
+  transition: all var(--duration-fast);
 
-  &:hover {
-    background: #f3f4f6;
-  }
+  &:hover { background: var(--surface-hover); }
 
   &.saved {
-    border-left-color: #10b981;
-    background: linear-gradient(90deg, rgba(16, 185, 129, 0.05) 0%, transparent 100%);
+    border-left-color: var(--success);
+    background: linear-gradient(90deg, rgba(125, 190, 138, 0.08) 0%, transparent 100%);
   }
 
   .result-number {
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--success), #5a9e68);
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1133,16 +1180,15 @@ onMounted(async () => {
 
     .result-keyword {
       margin-bottom: 10px;
-
       .keyword-tag {
         display: inline-flex;
         align-items: center;
         padding: 5px 12px;
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
-        border-radius: 8px;
+        background: var(--warning-soft);
+        border-radius: var(--radius-sm);
         font-size: 13px;
         font-weight: 500;
-        color: #d97706;
+        color: var(--warning);
       }
     }
 
@@ -1153,11 +1199,13 @@ onMounted(async () => {
 
       .question-chip {
         padding: 5px 10px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 6px;
+        background: rgba(200, 185, 160, 0.06);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-sm);
         font-size: 12px;
-        color: #6b7280;
+        color: var(--text-muted);
+        transition: all var(--duration-fast);
+        &:hover { border-color: var(--border-hover); color: var(--text-body); }
       }
     }
   }
@@ -1167,16 +1215,14 @@ onMounted(async () => {
 
     .action-btn {
       padding: 6px 12px;
-      background: #4a90e2;
+      background: var(--accent);
       border: none;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       font-size: 12px;
-      color: white;
+      font-weight: 500;
+      color: var(--accent-ink);
       cursor: pointer;
-
-      &:hover {
-        background: #357abd;
-      }
+      &:hover { background: var(--accent-hover); }
     }
 
     .saved-badge {
@@ -1184,30 +1230,30 @@ onMounted(async () => {
       align-items: center;
       gap: 4px;
       padding: 4px 8px;
-      background: #d1fae5;
-      border-radius: 6px;
+      background: var(--success-soft);
+      border-radius: var(--radius-sm);
       font-size: 11px;
-      color: #059669;
+      color: var(--success);
       font-weight: 500;
     }
   }
 }
 
-// 骨架屏
+// ---- Skeleton ----
 .result-skeleton {
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 14px;
-  background: #f9fafb;
-  border-radius: 10px;
+  background: var(--surface-field);
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
 
   .skeleton-number {
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background: linear-gradient(90deg, rgba(200,185,160,0.08) 25%, rgba(200,185,160,0.14) 50%, rgba(200,185,160,0.08) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     flex-shrink: 0;
@@ -1215,26 +1261,23 @@ onMounted(async () => {
 
   .skeleton-content {
     flex: 1;
-
     .skeleton-keyword {
       width: 80px;
       height: 28px;
       border-radius: 6px;
-      background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+      background: linear-gradient(90deg, rgba(200,185,160,0.08) 25%, rgba(200,185,160,0.14) 50%, rgba(200,185,160,0.08) 75%);
       background-size: 200% 100%;
       animation: shimmer 1.5s infinite;
       margin-bottom: 10px;
     }
-
     .skeleton-questions {
       display: flex;
       gap: 6px;
-
-      .skeleton-question {
+      .skeleton-q {
         width: 100px;
         height: 24px;
         border-radius: 6px;
-        background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+        background: linear-gradient(90deg, rgba(200,185,160,0.08) 25%, rgba(200,185,160,0.14) 50%, rgba(200,185,160,0.08) 75%);
         background-size: 200% 100%;
         animation: shimmer 1.5s infinite;
       }
@@ -1242,336 +1285,332 @@ onMounted(async () => {
   }
 }
 
-// 右侧关键词主区域
-.keywords-main {
+// ---- Right Split Area ----
+.keywords-split-area {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+  min-height: 0;
+}
+
+.keywords-column,
+.questions-column {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  min-width: 0;
 }
 
-.keywords-header {
+.column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #f3f4f6;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-thin);
+  flex-shrink: 0;
+  background: rgba(200, 185, 160, 0.02);
+}
 
-  .keywords-title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: #1a1f36;
-  }
+.column-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-  .keywords-count {
-    font-size: 12px;
-    color: #9ca3af;
-  }
+.delete-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: var(--danger-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--danger);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  white-space: nowrap;
 
-  .view-toggle {
-    display: flex;
-    background: #f3f4f6;
-    border-radius: 8px;
-    padding: 2px;
+  svg { flex-shrink: 0; }
 
-    button {
-      padding: 6px 10px;
-      background: transparent;
-      border: none;
-      border-radius: 6px;
-      color: #9ca3af;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        color: #6b7280;
-      }
-
-      &.active {
-        background: white;
-        color: #4a90e2;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-      }
-    }
+  &:hover {
+    background: rgba(224, 115, 99, 0.22);
+    border-color: var(--danger);
   }
 }
 
-.keywords-container {
+.column-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.column-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  svg { width: 16px; height: 16px; }
+}
+
+.keyword-icon { background: linear-gradient(135deg, var(--warning), #b8861e); }
+.question-icon { background: linear-gradient(135deg, #7b9ec7, #5a7db0); }
+
+.column-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-head);
+}
+
+.column-count { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+.column-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
-
-  &.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 16px;
-  }
-
-  &.list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-
-    .keyword-card {
-      flex-direction: row;
-      align-items: center;
-
-      .card-header {
-        margin-bottom: 0;
-        margin-right: 16px;
-      }
-
-      .card-body {
-        flex: 1;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-
-        .questions-preview {
-          margin-bottom: 0;
-          margin-right: 16px;
-        }
-      }
-    }
-  }
+  padding: 16px;
 }
 
-// 空状态
-.empty-keywords {
+.column-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 20px;
-  color: #9ca3af;
+  padding: 48px 20px;
+  color: var(--text-muted);
 
-  svg {
-    width: 64px;
-    height: 64px;
-    margin-bottom: 16px;
-    opacity: 0.5;
+  svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.25; }
+  p { margin: 0; font-size: 13px; }
+}
+
+// ---- Keywords Grid ----
+.keywords-grid-column {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+// ---- Question Cards ----
+.questions-grid-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.question-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--surface-field);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-md);
+  transition: all var(--duration-fast);
+
+  &:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-soft);
   }
 
-  p {
-    margin: 0;
-    font-size: 14px;
+  .question-card-body {
+    flex: 1;
+    min-width: 0;
+    .question-text {
+      font-size: 13px;
+      color: var(--text-body);
+      line-height: 1.5;
+      word-break: break-all;
+    }
+  }
+
+  .question-card-actions {
+    flex-shrink: 0;
+    margin-left: 10px;
+
+    .action-btn.delete {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--duration-fast);
+
+      &:hover { background: var(--danger-soft); color: var(--danger); }
+    }
   }
 }
 
-// 关键词卡片
+// ---- Keyword Card ----
 .keyword-card {
-  background: #f9fafb;
-  border-radius: 12px;
+  background: var(--surface-field);
+  border-radius: var(--radius-md);
   padding: 16px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border: 2px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+  border: 1px solid transparent;
 
   &:hover {
-    border-color: #4a90e2;
-    box-shadow: 0 4px 12px rgba(74, 144, 226, 0.1);
+    border-color: var(--accent);
+    box-shadow: 0 4px 16px rgba(212, 168, 83, 0.08);
     transform: translateY(-2px);
   }
 
   .card-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 8px;
     margin-bottom: 12px;
 
     .keyword-text {
       margin: 0;
-      font-size: 15px;
-      font-weight: 500;
-      color: #1a1f36;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-head);
+      word-break: break-word;
     }
 
     .difficulty-badge {
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
       font-size: 11px;
       font-weight: 600;
+      flex-shrink: 0;
 
-      &.high {
-        background: #fef2f2;
-        color: #ef4444;
-      }
-
-      &.medium {
-        background: #fef3c7;
-        color: #d97706;
-      }
-
-      &.low {
-        background: #d1fae5;
-        color: #059669;
-      }
+      &.high { background: var(--danger-soft); color: var(--danger); }
+      &.medium { background: var(--warning-soft); color: var(--warning); }
+      &.low { background: var(--success-soft); color: var(--success); }
     }
   }
 
-  .card-body {
+  .card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-thin);
 
-    .questions-preview {
+    .action-btn {
+      flex: 1;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
+      padding: 6px;
+      border: none;
+      border-radius: var(--radius-sm);
       font-size: 12px;
-      color: #9ca3af;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--duration-fast);
 
-      svg {
-        color: #4a90e2;
+      &.view {
+        background: rgba(200, 185, 160, 0.06);
+        color: var(--text-muted);
+        &:hover { background: rgba(200, 185, 160, 0.12); color: var(--text-head); }
       }
-    }
 
-    .card-actions {
-      display: flex;
-      gap: 8px;
-      padding-top: 12px;
-      border-top: 1px solid #e5e7eb;
-
-      .action-btn {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 8px;
-        border: none;
-        border-radius: 8px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s;
-
-        &.view {
-          background: #f3f4f6;
-          color: #6b7280;
-
-          &:hover {
-            background: #e5e7eb;
-            color: #1a1f36;
-          }
-        }
-
-        &.delete {
-          background: #fef2f2;
-          color: #ef4444;
-
-          &:hover {
-            background: #fee2e2;
-          }
-        }
+      &.delete {
+        background: var(--danger-soft);
+        color: var(--danger);
+        &:hover { background: rgba(224, 115, 99, 0.22); }
       }
     }
   }
 }
 
-// 详情对话框
+// ---- Detail Dialog ----
 .detail-content {
   .detail-meta {
     display: flex;
     gap: 24px;
-
     .meta-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
-      .meta-label {
-        font-size: 13px;
-        color: #6b7280;
-      }
-
-      .meta-empty {
-        font-size: 13px;
-        color: #9ca3af;
-      }
+      display: flex; align-items: center; gap: 8px;
+      .meta-label { font-size: 13px; color: var(--text-muted); }
+      .meta-empty { font-size: 13px; color: var(--text-muted); }
     }
   }
 
   .questions-section {
     .questions-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-
-      h5 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 500;
-        color: #1a1f36;
-      }
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+      h5 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-head); }
     }
 
     .questions-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      min-height: 100px;
+      display: flex; flex-direction: column; gap: 10px; min-height: 100px;
 
       .question-item {
-        display: flex;
-        gap: 12px;
-        padding: 12px;
-        background: #f9fafb;
-        border-radius: 8px;
+        display: flex; gap: 12px; padding: 12px 14px;
+        background: var(--surface-field); border-radius: var(--radius-sm);
+        border: 1px solid var(--border-thin);
 
         .q-number {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: #4a90e2;
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 12px;
-          font-weight: 500;
-          flex-shrink: 0;
+          width: 24px; height: 24px; border-radius: 50%;
+          background: var(--accent); color: var(--accent-ink);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; font-weight: 600; flex-shrink: 0;
         }
-
-        .q-text {
-          flex: 1;
-          font-size: 13px;
-          color: #374151;
-        }
+        .q-text { flex: 1; font-size: 13px; color: var(--text-body); }
       }
     }
   }
 }
 
-// 滚动条
-.keywords-container::-webkit-scrollbar,
-.results-list::-webkit-scrollbar {
-  width: 6px;
-}
+// ---- Global Questions Section ----
+.questions-section-global {
+  margin-top: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-thin);
+  background: var(--surface-field);
 
-.keywords-container::-webkit-scrollbar-track,
-.results-list::-webkit-scrollbar-track {
-  background: transparent;
-}
+  .questions-section-header {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 600; color: var(--text-head);
+    margin-bottom: 10px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-thin);
 
-.keywords-container::-webkit-scrollbar-thumb,
-.results-list::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
+    svg { color: #7b9ec7; }
+  }
 
-  &:hover {
-    background: #9ca3af;
+  .questions-list-global {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 300px; overflow-y: auto;
+  }
+
+  .question-item-global {
+    display: flex; gap: 10px; padding: 8px 10px;
+    background: rgba(200, 185, 160, 0.03);
+    border: 1px solid var(--border-thin);
+    border-radius: var(--radius-sm);
+    transition: background var(--duration-fast);
+
+    &:hover { background: rgba(200, 185, 160, 0.06); }
+
+    .q-number {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: linear-gradient(135deg, #7b9ec7, #5a7db0);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 500; flex-shrink: 0;
+    }
+    .q-text { flex: 1; font-size: 13px; color: var(--text-body); line-height: 1.5; }
   }
 }
 
-// 动画
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+// ---- Animations ----
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @keyframes shimmer {
   0% { background-position: -200% 0; }
@@ -1582,30 +1621,12 @@ onMounted(async () => {
 .keyword-enter-active {
   transition: all 0.3s ease;
 }
-
 .result-enter-from,
 .keyword-enter-from {
   opacity: 0;
   transform: translateX(-10px);
 }
 
-.result-enter-to,
-.keyword-enter-to {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.question-enter-active {
-  transition: all 0.2s ease;
-}
-
-.question-enter-from {
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-.question-enter-to {
-  opacity: 1;
-  transform: translateX(0);
-}
+.question-enter-active { transition: all 0.2s ease; }
+.question-enter-from { opacity: 0; transform: translateX(-10px); }
 </style>

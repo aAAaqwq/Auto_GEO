@@ -4,6 +4,7 @@
 管理企业知识库分类和知识条目
 """
 
+import os
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
@@ -17,6 +18,59 @@ from loguru import logger
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["知识库管理"])
+
+
+CLIENT_UPLOAD_ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
+CLIENT_UPLOAD_MAX_FILES = 5
+CLIENT_UPLOAD_MAX_FILE_SIZE = 10 * 1024 * 1024
+CLIENT_UPLOAD_CATEGORY_LABELS = {
+    "company": "公司资料",
+    "product": "产品文档",
+    "industry": "行业报告",
+    "technical": "技术文档",
+    "other": "其他",
+}
+
+
+def _extract_ragflow_id(result: dict) -> Optional[str]:
+    """兼容 RAGFlow 不同版本的 id 返回格式。"""
+    data = result.get("data")
+    if isinstance(data, dict):
+        dataset_id = data.get("id")
+        if dataset_id:
+            return str(dataset_id)
+    if isinstance(data, list) and data:
+        dataset_id = data[0].get("id")
+        if dataset_id:
+            return str(dataset_id)
+    dataset_id = result.get("id")
+    return str(dataset_id) if dataset_id else None
+
+
+def _extract_ragflow_documents(result: dict) -> List[dict]:
+    """Normalize RAGFlow upload responses across versions."""
+    data = result.get("data")
+    if isinstance(data, list):
+        return [doc for doc in data if isinstance(doc, dict)]
+    if isinstance(data, dict):
+        for key in ("docs", "documents", "items", "list"):
+            docs = data.get(key)
+            if isinstance(docs, list):
+                return [doc for doc in docs if isinstance(doc, dict)]
+        if data.get("id"):
+            return [data]
+    if result.get("id"):
+        return [result]
+    return []
+
+
+def _build_client_upload_tags(client_id: int) -> str:
+    return f"source=client_upload,client_id={client_id}"
+
+
+def _safe_upload_filename(file_name: Optional[str]) -> str:
+    base_name = os.path.basename(file_name or "unknown")
+    return base_name or "unknown"
 
 
 # ==================== 请求/响应模型 ====================
@@ -611,6 +665,261 @@ async def upload_knowledge_file(
     except Exception as e:
         db.rollback()
         logger.error(f"文件上传失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload", response_model=ApiResponse)
+async def upload_client_files(
+    client_id: str = Form(...),
+    category: str = Form(...),
+    description: Optional[str] = Form(None),
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    客户管理 - 上传资料文件到知识库
+
+    与前端 ClientPage.vue 对齐：
+    - client_id: 客户ID
+    - category: 分类名称
+    - description: 描述
+    - files: 多个文件
+    """
+    from backend.services.ragflow_client import get_ragflow_client
+
+    try:
+        # 1. 验证客户存在
+        from backend.database.models import Client
+
+        try:
+            client_id_int = int(client_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="客户ID格式不正确")
+
+        client = db.query(Client).filter(Client.id == client_id_int).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="客户不存在")
+
+        if not files:
+            raise HTTPException(status_code=400, detail="请至少上传一个文件")
+
+        if len(files) > CLIENT_UPLOAD_MAX_FILES:
+            raise HTTPException(status_code=400, detail=f"Too many files, max {CLIENT_UPLOAD_MAX_FILES}")
+
+        if category not in CLIENT_UPLOAD_CATEGORY_LABELS:
+            raise HTTPException(status_code=400, detail="资料分类不正确")
+
+        ragflow_client = get_ragflow_client()
+        if not ragflow_client.is_configured():
+            raise HTTPException(status_code=500, detail="RAGFlow未配置，请先配置RAGFLOW_BASE_URL和RAGFLOW_API_KEY")
+
+        category_label = CLIENT_UPLOAD_CATEGORY_LABELS[category]
+        client_display_name = client.company_name or client.name
+        client_tags = _build_client_upload_tags(client.id)
+        dataset_name = f"{client_display_name}-\u5ba2\u6237\u77e5\u8bc6\u5e93"[:200]
+
+        # 2. 查找或创建客户专属分类，避免不同客户共用“公司资料”等通用知识库
+        cat = db.query(KnowledgeCategory).filter(
+            KnowledgeCategory.tags == client_tags,
+            KnowledgeCategory.status == 1
+        ).first()
+
+        if not cat:
+            # 创建新分类及对应的 RAGFlow 知识库
+            ragflow_result = ragflow_client.create_dataset(
+                name=dataset_name,
+                description=f"{client_display_name} \u5ba2\u6237\u8d44\u6599\u77e5\u8bc6\u5e93"
+            )
+
+            if ragflow_result.get("code") != 0:
+                raise HTTPException(status_code=500, detail=f"RAGFlow创建知识库失败: {ragflow_result.get('message')}")
+
+            dataset_id = _extract_ragflow_id(ragflow_result)
+            if not dataset_id:
+                raise HTTPException(status_code=500, detail=f"RAGFlow返回的dataset_id为空: {ragflow_result}")
+
+            cat = KnowledgeCategory(
+                ragflow_dataset_id=str(dataset_id),
+                name=dataset_name,
+                industry=client.industry,
+                description=f"{client_display_name} \u5ba2\u6237\u8d44\u6599\u77e5\u8bc6\u5e93",
+                tags=client_tags,
+                sync_status="synced",
+                last_sync_at=datetime.now(),
+            )
+            db.add(cat)
+            db.commit()
+            db.refresh(cat)
+
+        # 3. 确保分类有 RAGFlow dataset_id；如果 RAGFlow 端知识库已被删除，则重建并回写本地记录
+        if cat.ragflow_dataset_id:
+            dataset_check = ragflow_client.get_dataset(cat.ragflow_dataset_id)
+            if dataset_check.get("code") != 0:
+                logger.warning(
+                    f"客户知识库在RAGFlow中不存在，将重新创建: client={client.id}, "
+                    f"dataset_id={cat.ragflow_dataset_id}, error={dataset_check.get('message')}"
+                )
+                cat.ragflow_dataset_id = None
+                cat.sync_status = "missing"
+                cat.last_sync_at = datetime.now()
+                db.commit()
+
+        # 4. 确保分类有 RAGFlow dataset_id
+        if not cat.ragflow_dataset_id:
+            ragflow_result = ragflow_client.create_dataset(
+                name=dataset_name,
+                description=cat.description or f"{client_display_name} \u5ba2\u6237\u8d44\u6599\u77e5\u8bc6\u5e93"
+            )
+            if ragflow_result.get("code") == 0:
+                dataset_id = _extract_ragflow_id(ragflow_result)
+                if dataset_id:
+                    cat.ragflow_dataset_id = str(dataset_id)
+                    cat.sync_status = "synced"
+                    cat.last_sync_at = datetime.now()
+                    db.commit()
+
+        if not cat.ragflow_dataset_id:
+            raise HTTPException(status_code=500, detail="分类未关联RAGFlow知识库，创建失败")
+
+        # 5. 上传每个文件到 RAGFlow（同时缓存文本文件内容用于提取）
+        uploaded = []
+        failed = []
+        text_contents = []  # 缓存文本文件内容用于AI提取
+        uploaded_doc_ids = []  # 记录上传成功的RAGFlow文档ID
+
+        for file in files:
+            file_name = _safe_upload_filename(file.filename)
+            try:
+                file_content = await file.read()
+                ext = os.path.splitext(file_name)[1].lower()
+
+                if ext not in CLIENT_UPLOAD_ALLOWED_EXTENSIONS:
+                    failed.append({"name": file_name, "error": "不支持的文件格式"})
+                    continue
+
+                if not file_content:
+                    failed.append({"name": file_name, "error": "文件内容为空"})
+                    continue
+
+                if len(file_content) > CLIENT_UPLOAD_MAX_FILE_SIZE:
+                    failed.append({"name": file_name, "error": "文件大小不能超过10MB"})
+                    continue
+
+                # 本地先抽文本用于客户信息提取；RAGFlow仍然保存完整原文件
+                try:
+                    from backend.services.document_extractor import get_document_extractor
+
+                    extractor = get_document_extractor()
+                    extracted_text = extractor.extract_text_from_file_bytes(file_content, file_name)
+                    if extracted_text:
+                        text_contents.append(extracted_text)
+                except Exception as e:
+                    logger.warning(f"本地读取上传文件文本失败（不影响入库）: {file_name}, error={e}")
+
+                ragflow_result = ragflow_client.upload_document_bytes(
+                    dataset_id=cat.ragflow_dataset_id,
+                    file_content=file_content,
+                    file_name=file_name,
+                )
+
+                if ragflow_result.get("code") != 0:
+                    failed.append({"name": file_name, "error": ragflow_result.get("message", "上传失败")})
+                    continue
+
+                docs = _extract_ragflow_documents(ragflow_result)
+                if not docs:
+                    failed.append({"name": file_name, "error": "RAGFlow未返回文档信息"})
+                    continue
+
+                doc_id = docs[0].get("id")
+                if not doc_id:
+                    failed.append({"name": file_name, "error": "RAGFlow返回的文档ID为空"})
+                    continue
+
+                uploaded_doc_ids.append(doc_id)
+
+                # 5. 创建 SQLite 缓存记录
+                knowledge = Knowledge(
+                    ragflow_document_id=doc_id,
+                    ragflow_dataset_id=cat.ragflow_dataset_id,
+                    category_id=cat.id,
+                    title=file_name,
+                    content=(
+                        f"client_id={client.id}; category={category}; "
+                        f"category_label={category_label}; description={description or ''}; file={file_name}"
+                    ),
+                    type=category,
+                    sync_status="synced",
+                    last_sync_at=datetime.now(),
+                )
+                db.add(knowledge)
+                db.commit()
+                db.refresh(knowledge)
+
+                uploaded.append({
+                    "id": knowledge.id,
+                    "name": file_name,
+                    "category": category,
+                    "ragflow_document_id": doc_id,
+                    "ragflow_dataset_id": cat.ragflow_dataset_id,
+                })
+                logger.info(f"客户资料上传成功: client={client.name}, file={file_name}, doc_id={doc_id}")
+
+            except Exception as e:
+                failed.append({"name": file_name, "error": str(e)})
+                logger.error(f"文件上传失败: {file_name}, error={e}")
+
+        # 6. 触发 RAGFlow 解析所有上传的文档
+        if uploaded_doc_ids:
+            try:
+                ragflow_client.parse_documents(cat.ragflow_dataset_id, uploaded_doc_ids)
+                logger.info(f"已触发RAGFlow解析: {len(uploaded_doc_ids)} 个文档")
+            except Exception as e:
+                logger.warning(f"触发RAGFlow解析失败（不影响上传结果）: {e}")
+
+        # 7. 从文本文件内容中提取客户信息（用于自动填充编辑表单）
+        extracted_info = {}
+        try:
+            from backend.services.document_extractor import get_document_extractor
+
+            extractor = get_document_extractor()
+            if text_contents:
+                combined_text = "\n\n---\n\n".join(text_contents)
+                extracted_info = extractor.extract_from_text(combined_text)
+
+            # 如果本地没提取到，尝试从已入库的 RAGFlow 文档内容中取；解析可能异步，失败不影响上传结果
+            if not extracted_info and uploaded_doc_ids:
+                for doc_id in uploaded_doc_ids:
+                    extracted_info = extractor.extract_from_ragflow_document(cat.ragflow_dataset_id, doc_id, ragflow_client)
+                    if extracted_info:
+                        break
+
+            logger.info(f"客户信息提取完成: {list(extracted_info.keys()) if extracted_info else '无'}")
+        except Exception as e:
+            logger.warning(f"客户信息提取失败（不影响上传结果）: {e}")
+
+        return ApiResponse(
+            success=True,
+            data={
+                "uploaded": uploaded,
+                "failed": failed,
+                "total": len(files),
+                "success_count": len(uploaded),
+                "failed_count": len(failed),
+                "category_id": cat.id,
+                "category_name": cat.name,
+                "category_label": category_label,
+                "ragflow_dataset_id": cat.ragflow_dataset_id,
+                "extracted_info": extracted_info if extracted_info else None,
+            },
+            message=f"上传完成: 成功 {len(uploaded)} 个, 失败 {len(failed)} 个",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"客户资料上传失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1219,6 +1528,7 @@ async def list_ragflow_datasets(
                 "id": ds.get("id"),
                 "name": ds.get("name"),
                 "description": ds.get("description", ""),
+                "embedding_model": ds.get("embedding_model", ""),
                 "chunk_count": ds.get("chunk_count", ds.get("chunk_num", 0)),
                 "document_count": ds.get("document_count", ds.get("document_num", 0)),
                 "created_at": ds.get("create_time", ds.get("create_date", "")),
@@ -1281,7 +1591,8 @@ async def create_ragflow_dataset(data: RAGFlowDatasetCreate):
             data={
                 "id": dataset_id,
                 "name": data.name,
-                "description": data.description
+                "description": data.description,
+                "embedding_model": dataset_info.get("embedding_model", "")
             },
             message=f"知识库 '{data.name}' 创建成功"
         )
@@ -1325,6 +1636,7 @@ async def get_ragflow_dataset(dataset_id: str):
                 "id": dataset.get("id"),
                 "name": dataset.get("name"),
                 "description": dataset.get("description", ""),
+                "embedding_model": dataset.get("embedding_model", ""),
                 "chunk_count": dataset.get("chunk_count", dataset.get("chunk_num", 0)),
                 "document_count": dataset.get("document_count", dataset.get("document_num", 0)),
                 "created_at": dataset.get("create_time", dataset.get("create_date", "")),
@@ -1399,7 +1711,8 @@ async def delete_ragflow_dataset(dataset_id: str):
 
         result = ragflow_client.delete_dataset(dataset_id)
 
-        if result.get("code") != 0:
+        # RAGFlow 删除成功时可能返回空响应或无 code 字段
+        if result.get("code") is not None and result.get("code") != 0:
             raise HTTPException(status_code=500, detail=result.get("message", "删除知识库失败"))
 
         return ApiResponse(
@@ -1480,6 +1793,7 @@ async def list_ragflow_documents(
                 "chunk_count": doc.get("chunk_count", 0),
                 "chunk_method": doc.get("chunk_method", doc.get("parser_id", "naive")),
                 "progress": doc.get("progress", 0),
+                "progress_msg": doc.get("progress_msg", doc.get("message", "")),
                 "created_at": doc.get("create_time", doc.get("create_date", "")),
                 "updated_at": doc.get("update_time", doc.get("update_date", "")),
             })
@@ -1545,6 +1859,7 @@ async def get_ragflow_document(dataset_id: str, document_id: str):
                 "chunk_count": doc.get("chunk_count", 0),
                 "chunk_method": doc.get("chunk_method", doc.get("parser_id", "naive")),
                 "progress": doc.get("progress", 0),
+                "progress_msg": doc.get("progress_msg", doc.get("message", "")),
                 "created_at": doc.get("create_time", doc.get("create_date", "")),
                 "updated_at": doc.get("update_time", doc.get("update_date", "")),
             },
@@ -1619,7 +1934,8 @@ async def delete_ragflow_document(dataset_id: str, document_id: str):
 
         result = ragflow_client.delete_document(dataset_id, document_id)
 
-        if result.get("code") != 0:
+        # RAGFlow 删除成功时可能返回 code=0 或空响应，只要没有抛出异常就算成功
+        if result.get("code") is not None and result.get("code") != 0:
             raise HTTPException(status_code=500, detail=result.get("message", "删除文档失败"))
 
         return ApiResponse(
@@ -1678,6 +1994,7 @@ async def upload_ragflow_document(
     dataset_id: str,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
+    auto_parse: Optional[str] = Form("true"),
     db: Session = Depends(get_db)
 ):
     """
@@ -1687,6 +2004,7 @@ async def upload_ragflow_document(
         dataset_id: 知识库 ID
         file: 上传的文件
         title: 自定义标题（可选）
+        auto_parse: 是否自动触发解析 (true/false, 默认true)
         db: 数据库会话
 
     Returns:
@@ -1700,15 +2018,20 @@ async def upload_ragflow_document(
         if not ragflow_client.is_configured():
             raise HTTPException(status_code=400, detail="RAGFlow 未配置")
 
-        # 读取文件内容
+        # 读取文件内容 (限制50MB防止内存溢出)
         file_content = await file.read()
+        if len(file_content) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="文件大小超过50MB限制")
+
         file_name = title or file.filename
 
         # 上传到 RAGFlow
+        do_parse = auto_parse.lower() != "false"
         result = ragflow_client.upload_document_bytes(
             dataset_id=dataset_id,
             file_content=file_content,
-            file_name=file_name
+            file_name=file_name,
+            do_parse=do_parse
         )
 
         if result.get("code") != 0:
@@ -1733,8 +2056,15 @@ async def upload_ragflow_document(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"上传 RAGFlow 文档失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        logger.error(f"上传 RAGFlow 文档失败: {error_msg}")
+        # 区分不同类型的错误
+        if "Connection" in error_msg or "connect" in error_msg.lower():
+            raise HTTPException(status_code=503, detail=f"RAGFlow 服务不可达: {error_msg}")
+        elif "timeout" in error_msg.lower():
+            raise HTTPException(status_code=504, detail=f"RAGFlow 响应超时: {error_msg}")
+        else:
+            raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.get("/ragflow/datasets/{dataset_id}/chunks", response_model=ApiResponse)

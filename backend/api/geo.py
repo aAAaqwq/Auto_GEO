@@ -6,6 +6,8 @@ GEO文章管理 API - 工业加固版
 
 import asyncio
 import json
+import re
+import zlib
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -76,6 +78,29 @@ def _convert_article_to_dict(article: GeoArticle) -> dict:
         "last_check_time": dt_to_str(article.last_check_time),
         "created_at": dt_to_str(article.created_at),
     }
+
+
+def _stabilize_image_urls(content: str, article_id: int) -> str:
+    """给 loremflickr 图片 URL 补稳定 lock，避免预览和发布拿到不同图片。"""
+    if not content:
+        return content
+
+    counter = 0
+
+    def replace_url(match):
+        nonlocal counter
+        url = match.group(1)
+        if "loremflickr.com" not in url or "lock=" in url:
+            return match.group(0)
+
+        counter += 1
+        seed_text = f"{article_id}:{counter}:{url}"
+        lock = zlib.crc32(seed_text.encode("utf-8")) % 9999 + 1
+        separator = "&" if "?" in url else "?"
+        stable_url = f"{url}{separator}lock={lock}"
+        return match.group(0).replace(url, stable_url)
+
+    return re.sub(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", replace_url, content)
 
 
 # ==================== 请求/响应模型 ====================
@@ -332,7 +357,7 @@ async def handle_n8n_callback(request: ArticleCallbackRequest, db: Session = Dep
             logger.info(f"✅ 更新标题: {request.title}")
 
         if request.content:
-            article.content = request.content
+            article.content = _stabilize_image_urls(request.content, article.id)
             logger.info(f"✅ 更新内容 (长度: {len(request.content)})")
 
         # 更新评分（如果有）

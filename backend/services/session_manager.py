@@ -17,6 +17,13 @@ from playwright.async_api import async_playwright
 
 from backend.config import DATA_DIR, ENCRYPTION_KEY, DEFAULT_USER_AGENT, AI_PLATFORMS, BROWSER_ARGS
 from backend.services.crypto import CryptoService
+from backend.services.cookie_validator import cookie_validator
+from backend.services.stealth_engine import (
+    create_stealth_instance,
+    extract_fingerprint,
+    get_user_agent_from_fingerprint,
+    get_viewport_from_fingerprint,
+)
 
 
 class SecureSessionManager:
@@ -103,6 +110,126 @@ class SecureSessionManager:
         except Exception as e:
             logger.error(f"保存会话失败: {e}")
             return False
+
+    async def sync_cookies_from_extension(
+        self,
+        user_id: int,
+        project_id: int,
+        platform: str,
+        cookies: list,
+        local_storage: dict,
+        fingerprint: dict,
+    ) -> Dict[str, Any]:
+        """
+        从浏览器扩展同步 Cookie + LocalStorage + 指纹数据
+
+        将 Chrome Extension 发送的原始 cookie 列表和 localStorage 字典
+        转换为 Playwright storage_state 格式并加密保存。
+
+        Args:
+            user_id: 用户ID
+            project_id: 项目ID
+            platform: AI平台标识
+            cookies: Chrome Extension 获取的 cookie 列表
+            local_storage: localStorage 键值对字典
+            fingerprint: 浏览器指纹信息
+
+        Returns:
+            同步结果
+        """
+        try:
+            if not all([user_id, project_id, platform, cookies]):
+                logger.error("sync_cookies_from_extension 参数不完整")
+                return {"success": False, "error": "参数不完整", "error_code": "INVALID_PARAMS"}
+
+            # 验证平台
+            if platform not in AI_PLATFORMS:
+                return {"success": False, "error": f"未知平台: {platform}", "error_code": "UNKNOWN_PLATFORM"}
+
+            platform_config = AI_PLATFORMS[platform]
+            platform_url = platform_config.get("url", "")
+
+            if not platform_url:
+                return {"success": False, "error": "平台URL未配置", "error_code": "CONFIG_ERROR"}
+
+            # 将 cookie 格式转换为 Playwright 格式
+            # Chrome Extension 返回的格式 -> Playwright storage_state cookies 格式
+            pw_cookies = []
+            for c in cookies:
+                raw_same_site = c.get("sameSite", "Lax")
+                # Chrome API 返回值可能是小写或 unspecified，统一转成 Playwright 要求的格式
+                same_site_map = {
+                    "strict": "Strict", "lax": "Lax", "none": "None",
+                    "no_restriction": "None", "unspecified": "Lax", "": "Lax",
+                }
+                same_site = same_site_map.get(
+                    raw_same_site.lower() if isinstance(raw_same_site, str) else "lax",
+                    "Lax",
+                )
+                pw_cookie = {
+                    "name": c.get("name", ""),
+                    "value": c.get("value", ""),
+                    "domain": c.get("domain", ""),
+                    "path": c.get("path", "/"),
+                    "httpOnly": c.get("httpOnly", False),
+                    "secure": c.get("secure", False),
+                    "sameSite": same_site,
+                }
+                if c.get("expires") and c["expires"] > 0:
+                    pw_cookie["expires"] = c["expires"]
+                pw_cookies.append(pw_cookie)
+
+            # 将 localStorage 转换为 Playwright origins 格式
+            origin = self._extract_origin(platform_url)
+            origins = []
+            if local_storage and origin:
+                ls_entries = [{"name": k, "value": str(v)} for k, v in local_storage.items()]
+                origins.append({"origin": origin, "localStorage": ls_entries})
+
+            # 构建 Playwright storage_state
+            storage_state = {
+                "cookies": pw_cookies,
+                "origins": origins,
+                "fingerprint": fingerprint,  # 保存原始浏览器指纹
+                "source": "browser_extension",
+            }
+
+            # 保存会话（标记为新登录）
+            save_result = await self.save_session(
+                user_id=user_id,
+                project_id=project_id,
+                platform=platform,
+                storage_state=storage_state,
+                is_new_login=True,
+            )
+
+            if not save_result:
+                return {"success": False, "error": "保存会话失败", "error_code": "SAVE_FAILED"}
+
+            logger.info(
+                f"Cookie同步成功: platform={platform}, cookies={len(pw_cookies)}, "
+                f"localStorage_keys={len(local_storage) if local_storage else 0}"
+            )
+
+            return {
+                "success": True,
+                "platform": platform,
+                "cookie_count": len(pw_cookies),
+                "message": "Cookie同步成功",
+            }
+
+        except Exception as e:
+            logger.error(f"sync_cookies_from_extension 失败: {e}")
+            return {"success": False, "error": str(e), "error_code": "INTERNAL_ERROR"}
+
+    def _extract_origin(self, url: str) -> str:
+        """从 URL 提取 origin（scheme + host）"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            return url.rstrip("/")
 
     async def load_session(
         self, user_id: int, project_id: int, platform: str, validate: bool = True
@@ -207,12 +334,30 @@ class SecureSessionManager:
                 except Exception as e:
                     logger.error(f"解析会话时间失败: {e}")
 
-            # 执行心跳检测（浏览器验证）
-            heartbeat_valid = await self._perform_heartbeat_check(platform=platform, storage_state=storage_state)
+            # 使用 HTTP Cookie 验证（调平台 API 确认 cookie 是否有效）
+            is_valid, reason, probe_info = await cookie_validator.validate(
+                platform=platform, storage_state=storage_state
+            )
 
-            if not heartbeat_valid:
-                logger.warning(f"心跳检测失败: platform={platform}")
+            layer = probe_info.get("layer", "?") if probe_info else "?"
+
+            if not is_valid:
+                logger.warning(
+                    f"Cookie验证失败(Layer {layer}): platform={platform}, reason={reason}"
+                )
                 return "invalid"
+
+            # Layer 5 = 所有层都无法判断 → 不假定有效，标记为即将过期
+            if probe_info and probe_info.get("layer") == 5:
+                logger.info(
+                    f"Cookie验证无结论(Layer 5)，标记为expiring: "
+                    f"platform={platform}, reason={reason}"
+                )
+                return "expiring"
+            else:
+                logger.info(
+                    f"Cookie验证成功(Layer {layer}): platform={platform}, reason={reason}"
+                )
 
             # 更新会话时间
             storage_state["last_modified"] = datetime.now().isoformat()
@@ -254,8 +399,16 @@ class SecureSessionManager:
                     logger.error(f"平台URL未配置: {platform}")
                     return False
 
-                # 启动浏览器
-                async with async_playwright() as p:
+                # 提取指纹数据用于反检测
+                fingerprint = extract_fingerprint(storage_state)
+                user_ua = get_user_agent_from_fingerprint(fingerprint, DEFAULT_USER_AGENT)
+                viewport = get_viewport_from_fingerprint(fingerprint)
+
+                # 创建隐身引擎实例
+                stealth = create_stealth_instance(fingerprint)
+
+                # 使用隐身引擎启动浏览器
+                async with stealth.use_async(async_playwright()) as p:
                     # 1. 尝试查找本地 Chrome 路径
                     chrome_paths = [
                         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -263,7 +416,6 @@ class SecureSessionManager:
                         os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
                     ]
 
-                    # Mac OS 支持
                     if sys.platform == "darwin":
                         chrome_paths = [
                             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -277,20 +429,7 @@ class SecureSessionManager:
                             logger.info(f"✅ [SessionManager] 找到本地 Chrome 浏览器: {path}")
                             break
 
-                    # 准备启动参数
-                    # 策略：前几次尝试使用headless=True，最后一次尝试headless=False（如果允许）
-                    # 为了不打扰用户，默认尽量headless。但如果之前的尝试失败了，尝试无头模式可能会继续失败
-                    # 这里保持 headless=True，除非特定平台需要
-
                     use_headless = True
-                    # 如果是重试且不是第一次，尝试使用非无头模式（如果这是最后一次机会）
-                    if retry_count == max_retries:
-                        # 最后的挣扎：尝试显示浏览器窗口，看看是否能绕过检测
-                        # 但为了避免突然弹出窗口吓到用户，我们只在特定错误下这样做
-                        # 暂时还是保持True，或者可以改为False
-                        # use_headless = False
-                        pass
-
                     launch_options = {"headless": use_headless, "args": BROWSER_ARGS, "timeout": 30000}
 
                     if executable_path:
@@ -304,7 +443,6 @@ class SecureSessionManager:
                         error_msg = str(browser_error)
                         logger.warning(f"浏览器启动失败: {error_msg}")
 
-                        # 如果指定了executable_path但失败，尝试回退到内置浏览器
                         if executable_path:
                             launch_options.pop("executable_path", None)
                             try:
@@ -312,7 +450,6 @@ class SecureSessionManager:
                             except Exception as inner_error:
                                 logger.error(f"内置浏览器启动失败: {inner_error}")
 
-                        # 自动安装逻辑
                         if not browser and "Executable doesn't exist" in str(error_msg):
                             logger.warning("检测到浏览器缺失，尝试自动安装...")
                             try:
@@ -340,9 +477,19 @@ class SecureSessionManager:
                             raise Exception(f"无法启动浏览器: {error_msg}")
 
                     try:
-                        # 创建上下文并加载存储状态
-                        context = await browser.new_context(storage_state=storage_state, user_agent=DEFAULT_USER_AGENT)
+                        # 使用指纹匹配的 UA 和 viewport 创建上下文
+                        context_kwargs = {"storage_state": storage_state, "user_agent": user_ua}
+                        if viewport:
+                            context_kwargs["viewport"] = viewport
+
+                        context = await browser.new_context(**context_kwargs)
                         page = await context.new_page()
+
+                        if fingerprint:
+                            logger.info(
+                                f"隐身模式: UA匹配={bool(fingerprint.get('user_agent'))}, "
+                                f"viewport={viewport}, platform={platform}"
+                            )
 
                         # 导航到平台页面
                         # 使用 domcontentloaded 代替 load，加快响应速度
@@ -559,22 +706,14 @@ class SecureSessionManager:
                 logger.warning(f"会话损坏: platform={platform}")
                 return {"status": "expiring", "reason": "会话损坏", "exists": True}
 
-            # 验证会话（增加重试机制）
-            session_status = "invalid"
-            retry_count = 2
-            for attempt in range(retry_count):
-                try:
-                    session_status = await self.validate_session(
-                        user_id=user_id, project_id=project_id, platform=platform, storage_state=storage_state
-                    )
-                    if session_status == "valid":
-                        break
-                except Exception as e:
-                    logger.warning(f"第{attempt + 1}次验证会话失败: {e}")
-                    if attempt < retry_count - 1:
-                        import asyncio
-
-                        await asyncio.sleep(1)  # 等待1秒后重试
+            # 验证会话（单次 HTTP 验证，不重试、不启动浏览器）
+            try:
+                session_status = await self.validate_session(
+                    user_id=user_id, project_id=project_id, platform=platform, storage_state=storage_state
+                )
+            except Exception as e:
+                logger.warning(f"验证会话异常: {e}")
+                session_status = "invalid"
 
             # 获取会话时间信息
             last_modified = storage_state.get("last_modified")
@@ -595,9 +734,7 @@ class SecureSessionManager:
                 except Exception as e:
                     logger.error(f"解析会话时间失败: {e}")
 
-            # 如果心跳检测失败但会话文件存在，返回"expiring"状态而不是"invalid"
-            if session_status == "invalid" and file_path.exists():
-                session_status = "expiring"
+            # 验证结果即为最终状态（valid/invalid/expiring），不再强制转换
 
             logger.info(f"会话状态检测完成: platform={platform}, status={session_status}")
             return {"status": session_status, "exists": True, "age_info": age_info, "platform": platform}

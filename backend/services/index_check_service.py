@@ -65,7 +65,7 @@ class IndexCheckService:
                 break
 
         # 准备启动参数
-        launch_options = {"headless": False, "args": BROWSER_ARGS, "timeout": 30000}
+        launch_options = {"headless": True, "args": BROWSER_ARGS, "timeout": 30000}
 
         if executable_path:
             launch_options["executable_path"] = executable_path
@@ -257,34 +257,70 @@ class IndexCheckService:
 
         # 导入会话管理器
         from backend.services.session_manager import secure_session_manager
-        # 导入UTC时间处理
+        from backend.services.cookie_validator import cookie_validator
 
+        # ========== 预检查：HTTP Cookie 验证（不启动浏览器） ==========
+        platform_sessions = {}
+        skipped_platforms = []
+        for platform_id in platforms:
+            checker = self.checkers.get(platform_id)
+            if not checker:
+                continue
+
+            storage_state = await secure_session_manager.load_session(
+                user_id=user_id, project_id=project_id, platform=platform_id, validate=False
+            )
+
+            if not storage_state:
+                logger.warning(f"[预检查] 平台 {checker.name} 无Cookie，标记为跳过")
+                skipped_platforms.append((platform_id, checker, None, "无Cookie"))
+                continue
+
+            # HTTP 快速验证（调平台 API 确认 cookie 是否有效）
+            is_valid, reason = await cookie_validator.validate_fast(
+                platform=platform_id, storage_state=storage_state
+            )
+
+            if not is_valid:
+                logger.warning(f"[预检查] 平台 {checker.name} Cookie无效: {reason}，跳过")
+                skipped_platforms.append((platform_id, checker, storage_state, reason))
+                continue
+
+            logger.info(f"[预检查] 平台 {checker.name} Cookie有效: {reason}")
+            platform_sessions[platform_id] = (checker, storage_state)
+
+        if not platform_sessions:
+            logger.warning(f"所有平台的Cookie均无效或不存在，跳过检测")
+            return results
+
+        # ========== 浏览器执行检测 ==========
         async with async_playwright() as p:
             # 使用统一的启动逻辑
             browser = await self._launch_browser(p)
 
             try:
-                # 为每个平台创建一个新的上下文和页面
-                for platform_id in platforms:
-                    checker = self.checkers.get(platform_id)
-                    if not checker:
-                        logger.warning(f"未知的平台: {platform_id}")
-                        continue
-
+                # 为每个通过预检查的平台创建上下文
+                for platform_id, (checker, storage_state) in platform_sessions.items():
                     logger.info(f"开始检测平台: {checker.name}, 关键词: {keyword_obj.keyword}")
 
-                    # 加载平台的存储状态（授权状态）
-                    storage_state = await secure_session_manager.load_session(
-                        user_id=user_id, project_id=project_id, platform=platform_id, validate=False
+                    # 提取指纹数据用于反检测
+                    fingerprint = storage_state.get("fingerprint") if storage_state else None
+                    user_ua = (
+                        fingerprint.get("user_agent")
+                        if fingerprint and fingerprint.get("user_agent")
+                        else DEFAULT_USER_AGENT
                     )
+                    viewport = None
+                    if fingerprint and fingerprint.get("viewport"):
+                        vp = fingerprint["viewport"]
+                        viewport = {"width": int(vp.get("width", 1920)), "height": int(vp.get("height", 1080))}
 
-                    if storage_state:
-                        logger.info(f"成功加载平台 {checker.name} 的存储状态")
-                    else:
-                        logger.warning(f"未找到平台 {checker.name} 的存储状态，将使用新的会话")
+                    # 为每个平台创建新的上下文和页面（使用指纹匹配）
+                    context_kwargs = {"storage_state": storage_state, "user_agent": user_ua}
+                    if viewport:
+                        context_kwargs["viewport"] = viewport
 
-                    # 为每个平台创建新的上下文和页面
-                    context = await browser.new_context(storage_state=storage_state, user_agent=DEFAULT_USER_AGENT)
+                    context = await browser.new_context(**context_kwargs)
                     page = await context.new_page()
 
                     try:
@@ -302,10 +338,12 @@ class IndexCheckService:
 
                         # 保存更新后的会话状态（如果登录状态发生了变化）
                         updated_storage_state = await context.storage_state()
-                        # 保留原始会话中的时间戳信息
+                        # 保留原始会话中的时间戳信息和指纹
                         if storage_state:
                             updated_storage_state["created_at"] = storage_state.get("created_at")
                             updated_storage_state["last_modified"] = storage_state.get("last_modified")
+                            if storage_state.get("fingerprint"):
+                                updated_storage_state["fingerprint"] = storage_state["fingerprint"]
                         save_result = await secure_session_manager.save_session(
                             user_id=user_id,
                             project_id=project_id,
@@ -322,6 +360,11 @@ class IndexCheckService:
                         await context.close()
             finally:
                 await browser.close()
+
+        # 记录跳过的平台
+        if skipped_platforms:
+            for platform_id, checker, _, reason in skipped_platforms:
+                logger.warning(f"平台 {checker.name} 因 {reason} 被跳过，未执行收录检测")
 
         return results
 

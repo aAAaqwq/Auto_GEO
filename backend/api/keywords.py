@@ -65,6 +65,7 @@ class KeywordResponse(BaseModel):
     keyword: str
     difficulty_score: Optional[int] = None
     status: Optional[str] = None  # 🌟 允许为 None
+    keyword_type: Optional[str] = None  # keyword / question
 
     created_at: Optional[datetime] = None
 
@@ -246,10 +247,27 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
             project_id=request.project_id,
             keyword=kw_text,
             difficulty_score=kw_data.get("difficulty_score") if isinstance(kw_data, dict) else None,
+            keyword_type="keyword",
         )
-        saved_keywords.append({"id": keyword.id, "keyword": keyword.keyword})
+        saved_keywords.append({"id": keyword.id, "keyword": keyword.keyword, "keyword_type": "keyword"})
+
+    # 保存高转化搜索短语（n8n 返回的 questions）到数据库
+    saved_phrases = []
+    for phrase_item in conversion_phrases:
+        phrase_text = phrase_item.get("question", "") if isinstance(phrase_item, dict) else str(phrase_item)
+        if not phrase_text.strip():
+            continue
+        keyword = service.add_keyword(
+            project_id=request.project_id,
+            keyword=phrase_text,
+            difficulty_score=None,
+            keyword_type="question",
+        )
+        saved_phrases.append({"id": keyword.id, "keyword": keyword.keyword, "keyword_type": "question"})
 
     # 构建响应数据 - 支持新旧两种格式
+    # keywords 保持只含核心关键词，conversion_phrases 单独渲染；
+    # questions 已通过 saved_phrases 入库，右侧面板 refresh 后可看到
     response_data = {
         "keywords": saved_keywords,
         "similar_keywords": similar_keywords,
@@ -262,7 +280,7 @@ async def distill_keywords(request: DistillRequest, db: Session = Depends(get_db
         response_data["raw_response"] = raw_response
 
     total_count = len(saved_keywords) + len(similar_keywords) + len(conversion_phrases)
-    logger.info(f"蒸馏完成: {len(saved_keywords)} 核心词, {len(similar_keywords)} 相近词, {len(conversion_phrases)} 转化短语")
+    logger.info(f"蒸馏完成: {len(saved_keywords)} 核心词, {len(similar_keywords)} 相近词, {len(conversion_phrases)} 转化短语(已入库{len(saved_phrases)}条)")
 
     return ApiResponse(
         success=True,
@@ -289,6 +307,20 @@ async def generate_questions(request: GenerateQuestionsRequest, db: Session = De
     return ApiResponse(success=True, message="生成完成", data={"questions": saved_questions})
 
 
+@router.get("/keywords/{keyword_id}/questions")
+async def get_keyword_questions(keyword_id: int, db: Session = Depends(get_db)):
+    """获取关键词的问题变体列表"""
+    keyword = db.query(Keyword).filter(Keyword.id == keyword_id).first()
+    if not keyword:
+        raise HTTPException(status_code=404, detail="关键词不存在")
+
+    questions = db.query(QuestionVariant).filter(QuestionVariant.keyword_id == keyword_id).order_by(QuestionVariant.id).all()
+    return [
+        {"id": q.id, "keyword_id": q.keyword_id, "question": q.question, "created_at": q.created_at.isoformat() if q.created_at else None}
+        for q in questions
+    ]
+
+
 @router.post("/projects/{project_id}/keywords", response_model=KeywordResponse, status_code=201)
 async def create_keyword(project_id: int, keyword_data: KeywordCreate, db: Session = Depends(get_db)):
     """手动创建关键词"""
@@ -304,12 +336,28 @@ async def create_keyword(project_id: int, keyword_data: KeywordCreate, db: Sessi
     return keyword
 
 
-@router.delete("/keywords/{keyword_id}", response_model=ApiResponse)
+@router.delete("/{keyword_id}", response_model=ApiResponse)
 async def delete_keyword(keyword_id: int, db: Session = Depends(get_db)):
-    """删除关键词"""
+    """删除单个关键词"""
+
+    # 🌟 路由说明: router prefix 已含 /api/keywords，此处仅需 /{keyword_id}
+    # 完整路径: DELETE /api/keywords/{keyword_id}
     keyword = db.query(Keyword).filter(Keyword.id == keyword_id).first()
     if not keyword:
         raise HTTPException(status_code=404, detail="关键词不存在")
     db.delete(keyword)
     db.commit()
     return ApiResponse(success=True, message="关键词已物理删除")
+
+
+@router.delete("/projects/{project_id}/keywords", response_model=ApiResponse)
+async def delete_all_keywords(project_id: int, db: Session = Depends(get_db)):
+    """一键删除项目下的所有关键词（物理删除）"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    deleted_count = db.query(Keyword).filter(Keyword.project_id == project_id).delete()
+    db.commit()
+    logger.info(f"项目 {project_id} 下已删除 {deleted_count} 个关键词")
+    return ApiResponse(success=True, message=f"已删除 {deleted_count} 个关键词")

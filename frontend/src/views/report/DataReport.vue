@@ -549,36 +549,36 @@ const viewRecords = () => {
   background: transparent !important;
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
-  --el-table-header-bg-color: var(--bg-tertiary);
-  --el-table-row-hover-bg-color: var(--bg-tertiary);
+  --el-table-header-bg-color: var(--surface-field);
+  --el-table-row-hover-bg-color: var(--surface-hover);
 
   :deep(.el-table__header) th {
-    background: #111 !important;
-    color: #888;
+    background: var(--surface-root) !important;
+    color: var(--text-muted);
     border-bottom: none;
   }
 
   :deep(.el-table__row) td {
-    border-bottom: 1px solid #333;
-    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-body);
   }
 }
 
 .empty-text {
   padding: 40px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   text-align: center;
 }
 
 :deep(.el-radio-button__inner) {
   background: transparent;
-  border-color: var(--border);
-  color: var(--text-secondary);
+  border-color: var(--border-soft);
+  color: var(--text-muted);
 }
 
 :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background: #333;
-  color: #fff;
-  border-color: #333;
+  background: var(--surface-field);
+  color: var(--text-head);
+  border-color: var(--accent);
 }
 </style>

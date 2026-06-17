@@ -384,21 +384,25 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* ================================================================
+   Scheduler — Unified Dark Theme
+   ================================================================ */
+$purple: #667eea;
+
 .scheduler-page {
   padding: 24px;
-  background: #f5f7fa;
+  background: var(--surface-base);
   min-height: 100vh;
 }
 
-/* 头部样式 */
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 24px;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.04);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
   margin-bottom: 24px;
 
   .header-left {
@@ -409,57 +413,52 @@ onMounted(() => {
     .header-icon {
       width: 52px;
       height: 52px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, $purple, #764ba2);
       border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
       font-size: 26px;
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
     }
 
     .page-title {
       margin: 0 0 6px 0;
+      font-family: var(--font-display);
       font-size: 22px;
       font-weight: 600;
-      color: #1a1a2e;
+      color: var(--text-head);
     }
 
     .page-desc {
       margin: 0;
       font-size: 14px;
-      color: #8b9bb4;
+      color: var(--text-muted);
     }
   }
 }
 
-/* 任务卡片区域 */
 .tasks-section {
   min-height: 300px;
 }
 
 .task-card {
   height: 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  border: none;
-  border-radius: 12px;
+  transition: transform var(--duration-normal) var(--ease-out);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
 
-  &:hover {
-    transform: translateY(-4px);
-  }
+  &:hover { transform: translateY(-3px); }
 
   :deep(.el-card__header) {
     padding: 16px 20px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-thin);
   }
 
-  :deep(.el-card__body) {
-    padding: 20px;
-  }
+  :deep(.el-card__body) { padding: 20px; }
 }
 
-/* 卡片头部 */
 .card-header {
   display: flex;
   align-items: center;
@@ -475,19 +474,18 @@ onMounted(() => {
   .task-icon {
     width: 42px;
     height: 42px;
-    background: #f5f7fa;
+    background: var(--surface-field);
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #8b9bb4;
+    color: var(--text-muted);
     font-size: 20px;
     transition: all 0.3s ease;
 
     &.active {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, $purple, #764ba2);
       color: white;
-      box-shadow: 0 4px 10px rgba(102, 126, 234, 0.25);
     }
   }
 
@@ -495,7 +493,7 @@ onMounted(() => {
     margin: 0 0 4px 0;
     font-size: 16px;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-head);
   }
 
   .status-badge {
@@ -503,34 +501,29 @@ onMounted(() => {
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: #8b9bb4;
-    transition: all 0.3s ease;
+    color: var(--text-muted);
 
-    &.active {
-      color: #52c41a;
-    }
+    &.active { color: var(--success); }
 
     .status-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #d9d9d9;
-      transition: all 0.3s ease;
+      background: var(--text-muted);
 
       .status-badge.active & {
-        background: #52c41a;
-        box-shadow: 0 0 8px rgba(82, 196, 26, 0.5);
+        background: var(--success);
+        box-shadow: 0 0 8px rgba(67, 185, 127, 0.4);
       }
     }
   }
 }
 
-/* 卡片内容 */
 .card-content {
   .task-description {
     margin: 0 0 20px 0;
     font-size: 13px;
-    color: #8b9bb4;
+    color: var(--text-muted);
     line-height: 1.6;
     min-height: 40px;
   }
@@ -540,14 +533,14 @@ onMounted(() => {
     align-items: center;
     gap: 14px;
     padding: 14px 16px;
-    background: #f8f9fc;
-    border-radius: 10px;
-    border-left: 3px solid #667eea;
+    background: var(--surface-field);
+    border-radius: var(--radius-md);
+    border-left: 3px solid $purple;
 
     .schedule-icon {
       width: 36px;
       height: 36px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, $purple, #764ba2);
       border-radius: 8px;
       display: flex;
       align-items: center;
@@ -562,21 +555,12 @@ onMounted(() => {
       flex-direction: column;
       gap: 2px;
 
-      .schedule-label {
-        font-size: 11px;
-        color: #8b9bb4;
-      }
-
-      .schedule-value {
-        font-size: 16px;
-        font-weight: 600;
-        color: #1a1a2e;
-      }
+      .schedule-label { font-size: 11px; color: var(--text-muted); }
+      .schedule-value { font-size: 16px; font-weight: 600; color: var(--text-head); }
     }
   }
 }
 
-/* 卡片底部 */
 .card-footer {
   display: flex;
   align-items: center;
@@ -584,7 +568,7 @@ onMounted(() => {
   gap: 8px;
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-thin);
 
   .action-btn {
     display: flex;
@@ -592,52 +576,32 @@ onMounted(() => {
     gap: 4px;
     padding: 0;
     font-size: 13px;
-
-    .btn-icon {
-      font-size: 15px;
-    }
+    .btn-icon { font-size: 15px; }
   }
 
   :deep(.el-divider--vertical) {
     height: 14px;
     margin: 0;
-    border-color: #e0e0e0;
+    border-color: var(--border-soft);
   }
 }
 
-/* 编辑弹窗样式 */
 .edit-form {
-  .task-name-display {
-    font-size: 15px;
-    font-weight: 500;
-    color: #1a1a2e;
-  }
-
-  .interval-input {
-    width: 140px;
-  }
-
-  .interval-unit {
-    margin-left: 8px;
-    color: #8b9bb4;
-  }
-
-  .time-picker {
-    width: 100%;
-  }
+  .task-name-display { font-size: 15px; font-weight: 500; color: var(--text-head); }
+  .interval-input { width: 140px; }
+  .interval-unit { margin-left: 8px; color: var(--text-muted); }
+  .time-picker { width: 100%; }
 
   .preview-text {
     font-size: 15px;
     font-weight: 500;
-    color: #667eea;
+    color: $purple;
     padding: 8px 12px;
-    background: #f8f9fc;
-    border-radius: 6px;
+    background: var(--surface-field);
+    border-radius: var(--radius-sm);
     display: inline-block;
   }
 }
 
-.mr-1 {
-  margin-right: 4px;
-}
+.mr-1 { margin-right: 4px; }
 </style>

@@ -18,7 +18,7 @@ class KeywordService:
     def __init__(self, db: Session):
         self.db = db
 
-    def add_keyword(self, project_id: int, keyword: str, difficulty_score: Optional[int] = None) -> Keyword:
+    def add_keyword(self, project_id: int, keyword: str, difficulty_score: Optional[int] = None, keyword_type: str = "keyword") -> Keyword:
         """
         添加单个关键词 (带查重逻辑)
         """
@@ -30,16 +30,17 @@ class KeywordService:
             if exists.status != "active":
                 exists.status = "active"
                 exists.difficulty_score = difficulty_score or exists.difficulty_score
+                exists.keyword_type = keyword_type
                 self.db.commit()
                 logger.info(f"激活已有关键词: {keyword}")
             return exists
 
         # 2. 创建新词
-        new_kw = Keyword(project_id=project_id, keyword=keyword, difficulty_score=difficulty_score, status="active")
+        new_kw = Keyword(project_id=project_id, keyword=keyword, difficulty_score=difficulty_score, keyword_type=keyword_type, status="active")
         self.db.add(new_kw)
         self.db.commit()
         self.db.refresh(new_kw)
-        logger.info(f"新增关键词: {keyword}")
+        logger.info(f"新增关键词: {keyword} (type={keyword_type})")
         return new_kw
 
     def add_question_variant(self, keyword_id: int, question: str) -> QuestionVariant:

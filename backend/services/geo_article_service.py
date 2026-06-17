@@ -12,12 +12,15 @@ GEO文章业务服务 - 工业加固修复版 (v2.7)
 import asyncio
 import random
 import json
+import re
+import zlib
 from typing import Any, Dict, Optional, List
 from datetime import datetime
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from backend.database.models import GeoArticle, Keyword, Account, PublishRecord
+from backend.services.geo_knowledge_service import GeoKnowledgeService
 from backend.services.n8n_service import get_n8n_service
 from backend.services.playwright.publishers.base import get_publisher
 from backend.services.crypto import decrypt_storage_state
@@ -33,6 +36,31 @@ chk_log = logger.bind(module="监测站")
 class GeoArticleService:
     def __init__(self, db: Session):
         self.db = db
+
+    def _stabilize_image_urls(self, content: str, article_id: int) -> str:
+        """
+        给动态图源补稳定 lock，避免预览和发布两次请求拿到不同图片。
+        只处理 loremflickr，保留其它图片源原样。
+        """
+        if not content:
+            return content
+
+        counter = 0
+
+        def replace_url(match):
+            nonlocal counter
+            url = match.group(1)
+            if "loremflickr.com" not in url or "lock=" in url:
+                return match.group(0)
+
+            counter += 1
+            seed_text = f"{article_id}:{counter}:{url}"
+            lock = zlib.crc32(seed_text.encode("utf-8")) % 9999 + 1
+            separator = "&" if "?" in url else "?"
+            stable_url = f"{url}{separator}lock={lock}"
+            return match.group(0).replace(url, stable_url)
+
+        return re.sub(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", replace_url, content)
 
     async def generate(
         self,
@@ -85,10 +113,32 @@ class GeoArticleService:
         try:
             # 3. 调用 n8n AI 平台（异步模式）
             gen_log.info(f"🛰️ 正在外发 AI 请求 (关键词: {kw_text})，使用异步回调模式...")
+            knowledge_service = GeoKnowledgeService(self.db)
+            base_requirements = (
+                f"围绕【{company_name}】编写，风格专业商务，适合 B2B 企业发布。"
+                "文章应自然覆盖用户搜索意图、行业痛点、解决方案和企业优势。"
+            )
+            rag_context = knowledge_service.build_context_for_keyword(
+                keyword_id=keyword_id,
+                company_name=company_name,
+            )
+            requirements = knowledge_service.build_requirements(
+                base_requirements=base_requirements,
+                rag_context=rag_context,
+            )
+            gen_log.info(
+                "GEO RAG context: article_id={}, enabled={}, datasets={}, chunks={}, warnings={}",
+                article.id,
+                rag_context.get("enabled"),
+                len(rag_context.get("dataset_ids", [])),
+                len(rag_context.get("chunks", [])),
+                rag_context.get("warnings", []),
+            )
             n8n = await get_n8n_service()
             n8n_res = await n8n.generate_geo_article(
                 keyword=kw_text,
-                requirements=f"围绕【{company_name}】编写，风格专业商务。",
+                company_name=company_name,
+                requirements=requirements,
                 word_count=1200,
                 # 传递回调URL和article_id，n8n完成后将结果回调通知
                 callback_url=None,
@@ -103,7 +153,7 @@ class GeoArticleService:
                     # 同步模式：n8n 直接返回了文章内容
                     gen_log.info(f"✅ n8n 同步返回文章 (article_id: {article.id})")
                     article.title = n8n_data["title"]
-                    article.content = n8n_data["content"]
+                    article.content = self._stabilize_image_urls(n8n_data["content"], article.id)
 
                     # 提取 SEO 评分
                     seo_score = n8n_data.get("seo_score")
@@ -172,7 +222,7 @@ class GeoArticleService:
             self.db.commit()
             pub_log.info(f"🔄 重置文章 {article_id} 状态为 publishing（原状态: {db_article.publish_status}）")
 
-        if "创作中" in db_article.title:
+        if "创作中" in (db_article.title or ""):
             pub_log.warning(f"⚠️ 文章 {article_id} 内容仍为占位符")
             return False
 
@@ -198,8 +248,30 @@ class GeoArticleService:
             self.db.commit()
             return False
 
-        # 查找账号
-        account = self.db.query(Account).filter(Account.platform == db_article.platform, Account.status == 1).first()
+        # 查找账号：优先使用前端/任务已绑定的 account_id，避免发布到同平台的错误账号
+        account = None
+        if db_article.account_id:
+            account = (
+                self.db.query(Account)
+                .filter(Account.id == db_article.account_id, Account.status == 1)
+                .first()
+            )
+            if not account:
+                db_article.publish_status = "failed"
+                db_article.error_msg = "指定发布账号不可用或未授权"
+                self.db.commit()
+                return False
+
+            if account.platform != db_article.platform:
+                pub_log.warning(
+                    f"⚠️ 文章 {article_id} 平台与账号平台不一致，已使用账号平台: "
+                    f"{db_article.platform} -> {account.platform}"
+                )
+                db_article.platform = account.platform
+                self.db.commit()
+                self.db.refresh(db_article)
+        else:
+            account = self.db.query(Account).filter(Account.platform == db_article.platform, Account.status == 1).first()
 
         if not account or not account.storage_state:
             db_article.publish_status = "failed"
@@ -213,6 +285,9 @@ class GeoArticleService:
 
         publisher = get_publisher(db_article.platform)
         if not publisher:
+            db_article.publish_status = "failed"
+            db_article.error_msg = f"暂不支持发布平台: {db_article.platform}"
+            self.db.commit()
             return False
 
         # 解析 Session
@@ -300,15 +375,26 @@ class GeoArticleService:
                 # 完全解耦，不再依赖之前的 Session
                 # 注意：PublishRecord 通过 account_id 关联 Account，平台信息可从 Account 获取，不需要直接存储 platform 字段
                 try:
-                    record = PublishRecord(
-                        article_id=target_article_id,
-                        account_id=target_account_id,
-                        publish_status=2 if is_success else 3,
-                        platform_url=final_url,
-                        error_msg=error_msg,
-                        published_at=now_time if is_success else None,
+                    record = (
+                        self.db.query(PublishRecord)
+                        .filter(
+                            PublishRecord.article_id == target_article_id,
+                            PublishRecord.account_id == target_account_id,
+                        )
+                        .order_by(PublishRecord.created_at.desc())
+                        .first()
                     )
-                    self.db.add(record)
+                    if not record:
+                        record = PublishRecord(
+                            article_id=target_article_id,
+                            account_id=target_account_id,
+                        )
+                        self.db.add(record)
+
+                    record.publish_status = 2 if is_success else 3
+                    record.platform_url = final_url
+                    record.error_msg = error_msg
+                    record.published_at = now_time if is_success else None
                     self.db.commit()
                     pub_log.info("📝 发布记录已保存")
                 except Exception as rec_e:
@@ -346,17 +432,155 @@ class GeoArticleService:
                 await browser.close()
 
     async def check_quality(self, article_id: int) -> Dict[str, Any]:
-        """质检逻辑"""
+        """
+        文章质量检查（AI 评估）
+
+        评估维度：
+        - quality_score: 内容完整性、结构、可读性 (0-100)
+        - fact_risk_score: 事实风险和幻觉风险 (0-100，越低越安全)
+        - platform_risk_score: 平台合规风险 (0-100，越低越安全)
+        - duplication_score: 与历史文章重复度 (0-100，越低越原创)
+
+        自动发布阈值：
+        - quality_score >= 75
+        - fact_risk_score <= 30
+        - platform_risk_score <= 30
+        - duplication_score <= 70
+        """
         article = self.get_article(article_id)
         if not article:
             return {"success": False, "message": "文章不存在"}
 
         gen_log.info(f"📊 正在对文章 {article_id} 进行 AI 质量评估...")
-        article.quality_score = random.randint(85, 98)
-        article.quality_status = "passed"
+
+        try:
+            # 构建质量检查 Prompt
+            prompt = self._build_quality_check_prompt(article)
+
+            # 尝试调用 AI 获取质量评分
+            result = await self._call_quality_ai(prompt)
+
+            if result:
+                article.quality_score = result.get("quality_score", 70)
+                article.fact_risk_score = result.get("fact_risk_score", 30)
+                article.platform_risk_score = result.get("platform_risk_score", 30)
+                article.duplication_score = result.get("duplication_score", 50)
+
+                # 检查自动发布阈值
+                if (
+                    article.quality_score >= 75
+                    and article.fact_risk_score <= 30
+                    and article.platform_risk_score <= 30
+                    and article.duplication_score <= 70
+                ):
+                    article.quality_status = "passed"
+                else:
+                    article.quality_status = "review_required"
+
+                self.db.commit()
+
+                gen_log.info(
+                    f"✅ 质量检查完成: article_id={article_id}, "
+                    f"quality={article.quality_score}, fact_risk={article.fact_risk_score}, "
+                    f"platform_risk={article.platform_risk_score}, dup={article.duplication_score}, "
+                    f"status={article.quality_status}"
+                )
+
+                return {
+                    "success": True,
+                    "quality_score": article.quality_score,
+                    "fact_risk_score": article.fact_risk_score,
+                    "platform_risk_score": article.platform_risk_score,
+                    "duplication_score": article.duplication_score,
+                    "quality_status": article.quality_status,
+                }
+
+        except Exception as e:
+            gen_log.warning(f"AI 质量检查调用失败，使用保守评分: {e}")
+
+        # AI 不可用时使用保守评分，进入人工审核，避免无质检能力时自动发布。
+        article.quality_score = 70
+        article.fact_risk_score = 25
+        article.platform_risk_score = 25
+        article.duplication_score = 50
+        article.quality_status = "review_required"
         self.db.commit()
 
-        return {"success": True, "score": article.quality_score}
+        return {
+            "success": True,
+            "quality_score": article.quality_score,
+            "fact_risk_score": article.fact_risk_score,
+            "platform_risk_score": article.platform_risk_score,
+            "duplication_score": article.duplication_score,
+            "quality_status": article.quality_status,
+            "note": "fallback_score (AI unavailable)",
+        }
+
+    def _build_quality_check_prompt(self, article) -> str:
+        """构建质量检查 Prompt"""
+        title = article.title or ""
+        content = article.content or ""
+        # 截取前 2000 字符用于评分
+        content_preview = content[:2000] if content else ""
+
+        return f"""请对以下文章进行质量评估，返回 JSON 格式的评分结果。
+
+评估标准：
+1. quality_score (0-100): 内容完整性、结构逻辑、可读性、专业性
+2. fact_risk_score (0-100): 是否存在编造的资质、案例、价格、客户名称等幻觉风险（分数越低越安全）
+3. platform_risk_score (0-100): 是否可能违反内容平台规则，如过度营销、虚假宣传（分数越低越安全）
+4. duplication_score (0-100): 是否为通用模板化内容，缺乏独特观点（分数越低越原创）
+
+文章标题：{title}
+
+文章内容：
+{content_preview}
+
+请只返回 JSON：{{"quality_score": 数字, "fact_risk_score": 数字, "platform_risk_score": 数字, "duplication_score": 数字}}"""
+
+    async def _call_quality_ai(self, prompt: str) -> Optional[Dict[str, int]]:
+        """调用 AI 进行质量检查"""
+        import json as json_module
+        import httpx
+        from backend.config import DEEPSEEK_API_URL, DEEPSEEK_API_KEY
+
+        if not DEEPSEEK_API_URL or not DEEPSEEK_API_KEY:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{DEEPSEEK_API_URL}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": "你是一个专业的内容质量审核员。只返回 JSON，不返回其他内容。"},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.1,
+                        "max_tokens": 200,
+                    },
+                )
+                data = resp.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+                # 提取 JSON
+                json_match = json_module.loads(content.strip())
+                if isinstance(json_match, dict) and "quality_score" in json_match:
+                    return {
+                        "quality_score": int(json_match.get("quality_score", 70)),
+                        "fact_risk_score": int(json_match.get("fact_risk_score", 30)),
+                        "platform_risk_score": int(json_match.get("platform_risk_score", 30)),
+                        "duplication_score": int(json_match.get("duplication_score", 50)),
+                    }
+        except Exception as e:
+            gen_log.warning(f"质量检查 AI 调用异常: {e}")
+
+        return None
 
     async def check_article_index(self, article_id: int) -> Dict[str, Any]:
         """收录监测逻辑"""

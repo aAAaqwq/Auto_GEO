@@ -6,7 +6,10 @@
 
 import json
 import re
+import zipfile
+from io import BytesIO
 from typing import Dict, Optional, List
+from xml.etree import ElementTree
 from loguru import logger
 
 try:
@@ -17,7 +20,7 @@ except ImportError:
     HAS_HTTPX = False
     logger.warning("httpx未安装，AI信息提取功能可能受限")
 
-from backend.config import DEEPSEEK_API_KEY, DEEPSEEK_API_URL
+from backend.config import DEEPSEEK_API_KEY, DEEPSEEK_API_URL, GLM_API_KEY, GLM_API_URL, GLM_MODEL
 
 
 class DocumentExtractor:
@@ -34,13 +37,27 @@ class DocumentExtractor:
             api_key: DeepSeek API Key（默认从配置读取）
             api_url: DeepSeek API URL（默认从配置读取）
         """
-        self.api_key = api_key or DEEPSEEK_API_KEY
-        self.api_url = api_url or DEEPSEEK_API_URL
+        if GLM_API_KEY:
+            self.provider = "glm"
+            self.api_key = api_key or GLM_API_KEY
+            self.api_url = api_url or GLM_API_URL
+            self.model = GLM_MODEL
+        else:
+            self.provider = "deepseek"
+            self.api_key = api_key or DEEPSEEK_API_KEY
+            self.api_url = api_url or DEEPSEEK_API_URL
+            self.model = "deepseek-chat"
         self.timeout = 60
 
     def is_configured(self) -> bool:
         """检查是否已配置API"""
         return bool(self.api_key and self.api_url and HAS_HTTPX)
+
+    def _chat_completions_url(self) -> str:
+        base_url = self.api_url.rstrip("/")
+        if base_url.endswith("/chat/completions"):
+            return base_url
+        return f"{base_url}/chat/completions"
 
     def extract_from_text(self, text: str) -> Dict:
         """
@@ -54,13 +71,93 @@ class DocumentExtractor:
         """
         if not self.is_configured():
             logger.warning("AI服务未配置，使用正则表达式提取")
-            return self._extract_with_regex(text)
+            return self._normalize_extracted_info(self._extract_with_regex(text))
 
         try:
-            return self._extract_with_ai(text)
+            extracted = self._extract_with_ai(text)
         except Exception as e:
             logger.error(f"AI提取失败，使用正则表达式: {e}")
-            return self._extract_with_regex(text)
+            extracted = self._extract_with_regex(text)
+
+        return self._normalize_extracted_info(extracted)
+
+    def _normalize_extracted_info(self, extracted: Dict) -> Dict:
+        """Drop empty fields and keep only client fields the frontend can edit."""
+        if not isinstance(extracted, dict):
+            return {}
+
+        allowed_fields = {
+            "company_name",
+            "contact_person",
+            "phone",
+            "email",
+            "industry",
+            "address",
+            "description",
+        }
+        normalized = {}
+        for key in allowed_fields:
+            value = extracted.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = value.strip(" \t\r\n：:，,；;")
+            if value:
+                normalized[key] = value
+        return normalized
+
+    def extract_text_from_file_bytes(self, file_content: bytes, file_name: str) -> str:
+        """
+        从上传文件字节中尽量提取可读文本，用于客户信息识别。
+
+        RAGFlow 仍然负责完整文档入库与解析；这里仅做上传后的即时字段提取。
+        """
+        ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+
+        if ext in {"txt", "md", "csv", "json", "xml", "html", "htm", "log"}:
+            return self._decode_text_bytes(file_content)
+
+        if ext == "docx":
+            return self._extract_docx_text(file_content)
+
+        if ext == "pdf":
+            return self._extract_pdf_text(file_content)
+
+        return ""
+
+    def _decode_text_bytes(self, file_content: bytes) -> str:
+        for encoding in ("utf-8-sig", "utf-8", "gbk", "gb18030"):
+            try:
+                return file_content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return ""
+
+    def _extract_docx_text(self, file_content: bytes) -> str:
+        try:
+            with zipfile.ZipFile(BytesIO(file_content)) as docx:
+                xml_content = docx.read("word/document.xml")
+            root = ElementTree.fromstring(xml_content)
+            namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+            texts = [node.text for node in root.iter(f"{namespace}t") if node.text]
+            return "\n".join(texts)
+        except Exception as e:
+            logger.warning(f"DOCX文本提取失败: {e}")
+            return ""
+
+    def _extract_pdf_text(self, file_content: bytes) -> str:
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(BytesIO(file_content))
+            pages = [page.extract_text() or "" for page in reader.pages[:10]]
+            return "\n".join(pages)
+        except ImportError:
+            logger.warning("pypdf未安装，PDF客户信息即时提取将依赖RAGFlow解析结果")
+            return ""
+        except Exception as e:
+            logger.warning(f"PDF文本提取失败: {e}")
+            return ""
 
     def _extract_with_ai(self, text: str) -> Dict:
         """
@@ -112,13 +209,13 @@ class DocumentExtractor:
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
-                    f"{self.api_url}/chat/completions",
+                    self._chat_completions_url(),
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
                     },
                     json={
-                        "model": "deepseek-chat",
+                        "model": self.model,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.1,  # 降低温度提高稳定性
                         "max_tokens": 1000,
@@ -143,7 +240,7 @@ class DocumentExtractor:
                     content = content.strip()
 
                     extracted = json.loads(content)
-                    logger.info(f"AI提取成功: {extracted}")
+                    logger.info(f"AI提取成功 provider={self.provider}, model={self.model}: {extracted}")
                     return extracted
                 except json.JSONDecodeError as e:
                     logger.warning(f"AI返回的不是有效JSON: {content[:200]}")
@@ -167,6 +264,55 @@ class DocumentExtractor:
             提取的客户信息字典
         """
         result = {}
+
+        def first_capture(patterns: List[str], max_len: int = 200) -> Optional[str]:
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+                if not match:
+                    continue
+                value = match.group(1).strip(" \t\r\n：:，,；;")
+                if value and len(value) <= max_len:
+                    return value
+            return None
+
+        company_name = first_capture(
+            [
+                r"(?:公司名称|企业名称|客户名称|单位名称)[:：\s]*([^\n\r，,；;]{2,80})",
+                r"([\u4e00-\u9fffA-Za-z0-9（）()·\-]{2,80}(?:股份有限公司|集团有限公司|科技有限公司|有限责任公司|有限公司|集团|工厂|中心))",
+            ],
+            max_len=100,
+        )
+        generic_company_names = {"我们公司", "我司", "本公司", "贵公司", "该公司", "公司"}
+        if company_name and company_name not in generic_company_names:
+            result["company_name"] = company_name
+
+        contact_person = first_capture(
+            [
+                r"(?:联系人|业务联系人|负责人|联系人员|姓名)(?:[:：\s]*(?:是|为)?[:：\s]*)([\u4e00-\u9fffA-Za-z·]{2,20})",
+                r"(?:联系人|负责人)(?:[:：\s]*(?:是|为)?[:：\s]*)([^\n\r，,；;]{2,20})",
+            ],
+            max_len=30,
+        )
+        if contact_person:
+            result["contact_person"] = contact_person
+
+        address = first_capture(
+            [
+                r"(?:公司地址|办公地址|联系地址|地址)[:：\s]*([^\n\r]{4,120})",
+            ],
+            max_len=150,
+        )
+        if address:
+            result["address"] = address
+
+        description = first_capture(
+            [
+                r"(?:公司简介|企业简介|业务描述|主营业务|经营范围)[:：\s]*([^\n\r]{6,200})",
+            ],
+            max_len=220,
+        )
+        if description:
+            result["description"] = description
 
         # 提取邮箱
         email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
@@ -207,6 +353,20 @@ class DocumentExtractor:
             "互联网",
             "科技",
         ]
+        industry_keywords.extend(
+            [
+                "人工智能",
+                "软件开发",
+                "信息技术",
+                "环保",
+                "工程服务",
+                "机械设备",
+                "企业服务",
+                "咨询服务",
+                "广告传媒",
+                "跨境电商",
+            ]
+        )
         for industry in industry_keywords:
             if industry in text:
                 result["industry"] = industry

@@ -106,24 +106,30 @@
       <div v-else class="auth-step">
         <div class="loading-container">
           <el-icon class="is-loading" size="40" color="#409eff"><Loading /></el-icon>
-          <h3>正在等待登录...</h3>
-          <p>浏览器已打开，请在弹出的窗口中扫码登录</p>
-          <p class="sub-text">登录成功后，此窗口会自动关闭</p>
+          <h3>请在浏览器中完成登录</h3>
+          <p>Chrome 已打开 <strong>{{ getPlatformName(formData.platform) }}</strong> 登录页</p>
+          <p v-if="confirming" class="sub-text">正在提取登录凭证...</p>
+          <p v-else class="sub-text">扫码或输入密码登录后，点击下方按钮</p>
         </div>
       </div>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="dialogVisible = false" :disabled="authStep">取消</el-button>
+          <el-button @click="dialogVisible = false" :disabled="authStep && confirming">取消</el-button>
           
           <!-- 编辑模式下只保存信息 -->
           <el-button v-if="isEdit && !authStep" type="primary" @click="saveAccountInfo">
             保存信息
           </el-button>
           
+          <!-- 授权等待阶段：手动确认按钮 -->
+          <el-button v-if="authStep" type="primary" :loading="confirming" @click="confirmAuth">
+            {{ confirming ? '提取中...' : '已完成登录' }}
+          </el-button>
+
           <!-- 添加模式或重新授权模式 -->
-          <el-button v-if="!isEdit || authStep" type="primary" :loading="loading" @click="startAuthProcess">
-            {{ authStep ? '等待中...' : '启动浏览器授权' }}
+          <el-button v-if="!isEdit && !authStep || (isEdit && authStep)" type="primary" :loading="loading" @click="startAuthProcess">
+            启动浏览器授权
           </el-button>
         </span>
       </template>
@@ -182,6 +188,8 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const authStep = ref(false) // 是否处于授权等待阶段
 const loading = ref(false)
+const confirming = ref(false) // 是否正在确认授权
+const authTaskId = ref('') // 当前授权任务ID
 const pollTimer = ref<any>(null)
 const filterStatus = ref<number | null>(null)
 
@@ -225,11 +233,19 @@ const dialogTitle = computed(() => {
   return isEdit.value ? '编辑账号' : '添加账号'
 })
 
+const normalizeAccountList = (res: any): any[] => {
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.items)) return res.items
+  if (Array.isArray(res?.data?.items)) return res.data.items
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
 // 加载列表
 const loadAccounts = async () => {
   try {
     const res: any = await accountApi.getList()
-    accounts.value = Array.isArray(res) ? res : []
+    accounts.value = normalizeAccountList(res)
   } catch (e) { console.error(e) }
 }
 
@@ -299,6 +315,7 @@ const startAuthProcess = async () => {
     })
 
     if (res.task_id) {
+      authTaskId.value = res.task_id
       authStep.value = true
       startPolling(res.task_id) // 开始轮询
     } else {
@@ -339,6 +356,36 @@ const startPolling = (taskId: string) => {
       }
     }
   }, 2000)
+}
+
+// 手动确认授权：用户登录后点击按钮，后端提取Cookie入库
+const confirmAuth = async () => {
+  if (!authTaskId.value) {
+    ElMessage.error('授权任务已失效')
+    return
+  }
+  confirming.value = true
+  try {
+    if (pollTimer.value) clearInterval(pollTimer.value)
+
+    const res: any = await accountApi.confirmAuth(authTaskId.value)
+    if (res.success) {
+      ElMessage.success('授权成功！')
+      dialogVisible.value = false
+      loadAccounts()
+    } else {
+      ElMessage.warning(res.message || '授权还未完成，请先登录平台')
+      // 恢复轮询
+      startPolling(authTaskId.value)
+    }
+  } catch (e: any) {
+    const msg = e.response?.data?.detail || '确认授权失败'
+    ElMessage.error(msg)
+    // 恢复轮询
+    startPolling(authTaskId.value)
+  } finally {
+    confirming.value = false
+  }
 }
 
 // 修改 deleteAccount 函数
@@ -383,6 +430,8 @@ const deleteAccount = async (acc: any) => {
 const resetForm = () => {
   if (pollTimer.value) clearInterval(pollTimer.value)
   authStep.value = false
+  confirming.value = false
+  authTaskId.value = ''
   loading.value = false
 }
 
@@ -409,7 +458,7 @@ const handleCheckAll = async () => {
   checking.value = true
 
   try {
-    const allAccounts: any[] = await accountApi.getList()
+    const allAccounts = normalizeAccountList(await accountApi.getList())
     const authorizedAccounts = allAccounts.filter((acc: any) => acc.status === 1)
     checkProgress.value.total = authorizedAccounts.length
 

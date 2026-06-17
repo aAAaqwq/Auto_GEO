@@ -366,7 +366,7 @@ import {
   Upload, ArrowDown, UploadFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { UploadInstance, UploadUserFile, UploadRawFile } from 'element-plus'
+import type { UploadFile, UploadInstance, UploadUserFile } from 'element-plus'
 import { clientApi, geoKeywordApi } from '@/services/api'
 
 // 状态
@@ -692,22 +692,24 @@ const uploadKnowledge = (client: any) => {
 }
 
 // 处理文件选择
-const handleFileChange = (file: UploadRawFile) => {
+const handleFileChange = (file: UploadFile, uploadFiles: UploadUserFile[]) => {
   // 验证文件类型
   const allowedTypes = ['pdf', 'doc', 'docx', 'txt', 'md']
   const ext = file.name.split('.').pop()?.toLowerCase()
   if (!ext || !allowedTypes.includes(ext)) {
     ElMessage.error('不支持的文件格式，请上传 PDF、Word、TXT 或 Markdown 文件')
+    fileList.value = uploadFiles.filter(item => item.uid !== file.uid)
     return false
   }
 
   // 验证文件大小 (10MB)
-  if (file.size > 10 * 1024 * 1024) {
+  if ((file.size || 0) > 10 * 1024 * 1024) {
     ElMessage.error('文件大小不能超过 10MB')
+    fileList.value = uploadFiles.filter(item => item.uid !== file.uid)
     return false
   }
 
-  fileList.value.push(file)
+  fileList.value = uploadFiles
   return true
 }
 
@@ -743,19 +745,57 @@ const confirmUpload = async () => {
       formData.append('files', file.raw)
     })
 
-    const response = await fetch('/api/knowledge/upload', {
-      method: 'POST',
-      body: formData
-    })
+    const response = await clientApi.uploadFiles(formData)
+    const result = response.data || {}
 
-    const data = await response.json()
-    if (data.success) {
-      ElMessage.success(`成功上传 ${fileList.value.length} 个文件`)
+    if (response.success) {
+      const successCount = result.success_count ?? result.uploaded?.length ?? fileList.value.length
+      const failedCount = result.failed_count ?? result.failed?.length ?? 0
+      if (failedCount > 0) {
+        ElMessage.warning(`上传完成：成功 ${successCount} 个，失败 ${failedCount} 个`)
+        if (Array.isArray(result.failed) && result.failed.length > 0) {
+          const failedText = result.failed
+            .map((item: any) => `${item.name || '未知文件'}：${item.error || '未知错误'}`)
+            .join('\n')
+          ElMessageBox.alert(failedText, '上传失败详情', {
+            confirmButtonText: '知道了',
+            type: 'warning'
+          })
+        }
+      } else {
+        ElMessage.success(`成功上传 ${successCount} 个文件`)
+      }
+
+      if (successCount === 0) {
+        return
+      }
+
       uploadDialogVisible.value = false
       fileList.value = []
+      uploadRef.value?.clearFiles()
       uploadForm.value = { category: '', description: '' }
+
+      // 如果从文档中提取到了客户信息，自动填充编辑表单
+      if (result.extracted_info && Object.keys(result.extracted_info).length > 0) {
+        const info = result.extracted_info
+        clientForm.value = {
+          id: currentClient.value.id,
+          name: info.company_name || currentClient.value.name,
+          company_name: info.company_name || currentClient.value.company_name || '',
+          contact_person: info.contact_person || currentClient.value.contact_person || '',
+          phone: info.phone || currentClient.value.phone || '',
+          email: info.email || currentClient.value.email || '',
+          industry: info.industry || currentClient.value.industry || '',
+          address: info.address || currentClient.value.address || '',
+          description: info.description || currentClient.value.description || '',
+          status: currentClient.value.status ?? 1
+        }
+        isEdit.value = true
+        dialogVisible.value = true
+        ElMessage.info('已从文档中提取客户信息，请确认并保存')
+      }
     } else {
-      ElMessage.error(data.message || '上传失败')
+      ElMessage.error(response.message || '上传失败')
     }
   } catch (e: any) {
     ElMessage.error('上传失败: ' + e.message)

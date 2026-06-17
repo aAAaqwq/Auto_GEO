@@ -83,13 +83,7 @@ class ZhihuPublisher(BasePublisher):
         匹配 <img src="/static/uploads/xxx.jpg"> 格式的本地图片
         也匹配外部http/https图片
         """
-        urls = []
-        # 匹配 <img src="...">
-        img_pattern = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
-        for match in img_pattern.findall(html_content):
-            if match:
-                urls.append(match)
-        return urls
+        return self.extract_image_urls(html_content)
 
     def _deep_clean_content(self, text: str) -> str:
         """
@@ -104,14 +98,14 @@ class ZhihuPublisher(BasePublisher):
         # 1. 移除markdown图片
         text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
 
-        # 2. 【保留加粗】HTML strong/b 转为 markdown **粗体**
-        text = re.sub(r"<strong[^>]*>(.*?)</strong>", r"**\1**", text)
-        text = re.sub(r"<b[^>]*>(.*?)</b>", r"**\1**", text)
+        # 2. HTML strong/b 保留文本，不再转回 markdown，避免知乎原样显示 **
+        text = re.sub(r"<strong[^>]*>(.*?)</strong>", r"\1", text)
+        text = re.sub(r"<b[^>]*>(.*?)</b>", r"\1", text)
 
-        # 3. 【标题转markdown】h3/h4/h5 转为 ### 标题
-        text = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n\n### \1\n\n", text)
-        text = re.sub(r"<h4[^>]*>(.*?)</h4>", r"\n\n#### \1\n\n", text)
-        text = re.sub(r"<h5[^>]*>(.*?)</h5>", r"\n\n##### \1\n\n", text)
+        # 3. HTML 标题保留标题文本，不再转回 ###，避免知乎原样显示标题符号
+        text = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n\n\1\n\n", text)
+        text = re.sub(r"<h4[^>]*>(.*?)</h4>", r"\n\n\1\n\n", text)
+        text = re.sub(r"<h5[^>]*>(.*?)</h5>", r"\n\n\1\n\n", text)
 
         # 4. 【段落】p标签保留，但不要额外换行
         text = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", text)
@@ -171,10 +165,9 @@ class ZhihuPublisher(BasePublisher):
                 cleaned_lines.append(stripped)
                 prev_empty = False
 
-        # 9. 移除markdown标题前可能遗留的 #
         text = "\n".join(cleaned_lines)
 
-        return text.strip()
+        return self.markdown_to_plain_text(text)
 
     async def publish(self, page: Page, article: Any, account: Any, declare_ai_content: bool = True) -> Dict[str, Any]:
         temp_files = []
@@ -196,28 +189,29 @@ class ZhihuPublisher(BasePublisher):
             image_urls = self._extract_image_urls_from_html(article.content)
             logger.info(f"📷 从文章中提取到 {len(image_urls)} 张图片")
 
-            # 3. 【重要】清理HTML内容，转为纯文本
-            clean_content = self._deep_clean_content(article.content)
-            logger.info(f"📝 内容已清理，长度: {len(clean_content)} 字符")
-
-            # 4. 提取keyword用于生成默认图片（如果没有图片的话）
+            # 3. 提取keyword用于生成默认图片（如果没有图片的话）
             keyword = article.title[:10] if article.title else "technology"
 
-            # 5. 下载图片（本地图片从后端获取）
+            # 4. 下载图片（本地图片从后端获取）
             downloaded_paths = await self._download_images(image_urls, keyword=keyword)
             temp_files.extend(downloaded_paths)
 
-            # 6. 检查图片结果
+            # 5. 检查图片结果
             if not downloaded_paths:
                 logger.warning("⚠️ 无法获得任何图片，继续发布（无图模式）")
             else:
                 logger.success(f"✅ 图片准备完成: {len(downloaded_paths)} 张")
 
+            # 6. 按 Markdown 原始顺序构建发布块，避免图片被放到错误位置
+            content_blocks = self._build_content_blocks(article.content, downloaded_paths)
+            text_length = sum(len(block["content"]) for block in content_blocks if block["type"] == "text")
+            logger.info(f"📝 内容已拆分为 {len(content_blocks)} 个发布块，文本长度: {text_length} 字符")
+
             # 7. 填充标题
             await self._fill_title(page, article.title)
 
-            # 8. 填充正文（已清理为纯文本）
-            await self._fill_content_and_clean_ui(page, clean_content)
+            # 8. 按顺序填充正文和图片
+            await self._fill_content_blocks(page, content_blocks)
 
             # 9. 【条件】根据参数决定是否设置 AI 声明
             if declare_ai_content:
@@ -225,13 +219,7 @@ class ZhihuPublisher(BasePublisher):
             else:
                 logger.info("⏭️ 跳过AI声明设置")
 
-            # 10. 执行多图排版上传 (仅在有图片时执行)
-            if downloaded_paths:
-                await self._handle_multi_image_upload(page, downloaded_paths)
-            else:
-                logger.info("ℹ️ 跳过图片上传步骤（无可用图片）")
-
-            # 11. 发布流程
+            # 10. 发布流程
             topic_word = getattr(article, "keyword_text", article.title[:4])
             if not await self._handle_publish_process(page, topic_word):
                 return {"success": False, "error_msg": "发布确认环节失败"}
@@ -349,6 +337,35 @@ class ZhihuPublisher(BasePublisher):
         logger.info(f"📊 最终获得 {len(paths)} 张图片")
         return paths
 
+    def _build_content_blocks(self, content: str, image_paths: List[str]) -> List[Dict[str, str]]:
+        """按 Markdown 图片位置拆成文本/图片块，尽量保持后台预览中的排版顺序。"""
+        blocks: List[Dict[str, str]] = []
+        image_index = 0
+        last_end = 0
+
+        image_pattern = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+        for match in image_pattern.finditer(content or ""):
+            before = content[last_end : match.start()]
+            clean_before = self.markdown_to_plain_text(before, drop_first_h1=not blocks)
+            if clean_before:
+                blocks.append({"type": "text", "content": clean_before})
+
+            if image_index < len(image_paths):
+                blocks.append({"type": "image", "content": image_paths[image_index]})
+            image_index += 1
+            last_end = match.end()
+
+        after = (content or "")[last_end:]
+        clean_after = self.markdown_to_plain_text(after, drop_first_h1=not blocks)
+        if clean_after:
+            blocks.append({"type": "text", "content": clean_after})
+
+        while image_index < len(image_paths):
+            blocks.append({"type": "image", "content": image_paths[image_index]})
+            image_index += 1
+
+        return blocks
+
     async def _handle_multi_image_upload(self, page: Page, paths: List[str]):
         """多图排版逻辑"""
         try:
@@ -454,6 +471,38 @@ class ZhihuPublisher(BasePublisher):
                 await confirm.click()
         except:
             pass
+
+    async def _fill_content_blocks(self, page: Page, blocks: List[Dict[str, str]]):
+        editor = ".public-DraftEditor-content"
+        await page.wait_for_selector(editor)
+        await page.click(editor)
+
+        for index, block in enumerate(blocks):
+            if block["type"] == "text":
+                await self._paste_text(page, block["content"])
+            elif block["type"] == "image":
+                await self._paste_image_via_js(page, block["content"])
+                await asyncio.sleep(5)
+
+            if index < len(blocks) - 1:
+                await page.keyboard.press("Enter")
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(0.2)
+
+    async def _paste_text(self, page: Page, text: str):
+        if not text:
+            return
+
+        await page.evaluate(
+            """(text) => {
+            const dt = new DataTransfer();
+            dt.setData("text/plain", text);
+            const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true });
+            document.querySelector(".public-DraftEditor-content").dispatchEvent(ev);
+        }""",
+            text,
+        )
+        await asyncio.sleep(1)
 
     async def _set_ai_declaration(self, page: Page):
         """设置 AI 创作声明 (移植自 Upstream)"""

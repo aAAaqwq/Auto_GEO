@@ -74,7 +74,8 @@ class AccountBase(BaseModel):
 class AccountCreate(AccountBase):
     """创建账号请求"""
 
-    pass
+    group_id: Optional[int] = Field(None, description="分组ID")
+    tags: Optional[List[str]] = Field(None, description="标签列表")
 
 
 class AccountUpdate(BaseModel):
@@ -83,6 +84,8 @@ class AccountUpdate(BaseModel):
     account_name: Optional[str] = Field(None, min_length=1, max_length=100)
     status: Optional[int] = Field(None, ge=-1, le=1)
     remark: Optional[str] = None
+    group_id: Optional[int] = Field(None, description="移动到指定分组")
+    tags: Optional[List[str]] = Field(None, description="更新标签列表")
 
 
 class AccountResponse(AccountBase):
@@ -92,6 +95,14 @@ class AccountResponse(AccountBase):
     username: Optional[str] = None
     status: int
     last_auth_time: Optional[datetime] = None
+    user_id: Optional[int] = None
+    group_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    health_score: Optional[int] = None
+    last_check_time: Optional[datetime] = None
+    auth_expires_at: Optional[datetime] = None
+    browser_type: Optional[str] = None
+    adspower_profile_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -104,6 +115,83 @@ class AccountDetailResponse(AccountResponse):
 
     is_authorized: bool = False
     platform_info: Optional[dict] = None
+    group_name: Optional[str] = None
+
+
+# ==================== 账号分组相关 ====================
+class AccountGroupCreate(BaseModel):
+    """创建分组请求"""
+
+    name: str = Field(..., min_length=1, max_length=100, description="分组名称")
+    icon: Optional[str] = Field(None, description="分组图标")
+    color: Optional[str] = Field("#409EFF", description="分组颜色")
+
+
+class AccountGroupUpdate(BaseModel):
+    """更新分组请求"""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class AccountGroupResponse(BaseModel):
+    """分组响应"""
+
+    id: int
+    name: str
+    icon: Optional[str] = None
+    color: Optional[str] = "#409EFF"
+    sort_order: int = 0
+    account_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== 批量操作相关 ====================
+class BatchStatusRequest(BaseModel):
+    """批量状态更新请求"""
+
+    account_ids: List[int] = Field(..., min_length=1, description="账号ID列表")
+    status: int = Field(..., ge=-1, le=1, description="目标状态")
+
+
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求"""
+
+    account_ids: List[int] = Field(..., min_length=1, description="账号ID列表")
+
+
+class BatchCheckRequest(BaseModel):
+    """批量检测请求"""
+
+    account_ids: List[int] = Field(..., min_length=1, description="账号ID列表")
+
+
+class BatchMoveGroupRequest(BaseModel):
+    """批量移动分组请求"""
+
+    account_ids: List[int] = Field(..., min_length=1, description="账号ID列表")
+    group_id: Optional[int] = Field(None, description="目标分组ID，null 表示取消分组")
+
+
+class BatchImportItem(BaseModel):
+    """批量导入单条数据"""
+
+    platform: str = Field(..., description="平台ID")
+    account_name: str = Field(..., min_length=1, max_length=100, description="账号备注名称")
+    remark: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+class BatchImportRequest(BaseModel):
+    """批量导入请求"""
+
+    accounts: List[BatchImportItem] = Field(..., min_length=1, description="账号列表")
 
 
 # ==================== 授权相关 ====================
@@ -285,8 +373,8 @@ class AutoPublishTaskCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=200, description="任务名称")
     description: Optional[str] = Field(None, description="任务描述")
-    article_ids: List[int] = Field(..., description="文章ID列表")
-    account_ids: List[int] = Field(..., description="账号ID列表")
+    article_ids: List[int] = Field(..., min_length=1, description="文章ID列表")
+    account_ids: List[int] = Field(..., min_length=1, description="账号ID列表")
     exec_type: str = Field(
         default="immediate", description="执行类型：immediate=立即执行 scheduled=定时执行 interval=间隔执行"
     )
@@ -360,3 +448,49 @@ class AutoPublishTaskDetailResponse(AutoPublishTaskResponse):
     """自动发布任务详情响应（含子任务记录）"""
 
     records: List[AutoPublishRecordResponse] = []
+
+
+# ==================== 飞书用户绑定相关 ====================
+
+
+class FeishuBindingCreate(BaseModel):
+    """创建飞书用户绑定请求"""
+
+    open_id: str = Field(..., min_length=1, max_length=200, description="飞书用户 open_id")
+    system_user_id: int = Field(..., description="绑定的系统用户ID")
+    default_project_id: Optional[int] = Field(None, description="默认项目ID")
+    default_client_id: Optional[int] = Field(None, description="默认客户ID")
+
+
+class FeishuBindingUpdate(BaseModel):
+    """更新飞书用户绑定请求"""
+
+    default_project_id: Optional[int] = Field(None, description="默认项目ID")
+    default_client_id: Optional[int] = Field(None, description="默认客户ID")
+    status: Optional[int] = Field(None, description="绑定状态：1=已绑定 0=已解绑")
+
+
+class FeishuBindingResponse(BaseModel):
+    """飞书用户绑定响应"""
+
+    id: int
+    open_id: str
+    union_id: Optional[str] = None
+    system_user_id: int
+    username: Optional[str] = None
+    default_project_id: Optional[int] = None
+    default_project_name: Optional[str] = None
+    default_client_id: Optional[int] = None
+    status: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FeishuBindingCheckResponse(BaseModel):
+    """绑定检查响应"""
+
+    bound: bool
+    binding: Optional[FeishuBindingResponse] = None

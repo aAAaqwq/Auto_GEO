@@ -1,5 +1,24 @@
 <template>
   <div class="articles-page">
+    <!-- ========== 页面头部 ========== -->
+    <div class="page-hero">
+      <div class="hero-content">
+        <span class="hero-badge">Content Studio</span>
+        <h1 class="hero-title">文章生成</h1>
+        <p class="hero-desc">AI 驱动的多平台内容创作与分发引擎</p>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <span class="hero-stat-value">{{ articles.length }}</span>
+          <span class="hero-stat-label">文章总数</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">{{ articles.filter(function(a) { return a.publish_status === 'published' }).length }}</span>
+          <span class="hero-stat-label">已发布</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 选择区域 -->
     <div class="section">
       <h2 class="section-title">生成文章</h2>
@@ -90,7 +109,7 @@
     </div>
 
     <!-- 文章列表 -->
-    <div class="section mt-20">
+    <div class="section section-list">
       <div class="section-header">
         <div class="header-left">
           <h2 class="section-title">文章列表</h2>
@@ -121,7 +140,7 @@
             <el-option label="已生成/待分发" value="completed" />
             <el-option label="已配置定时" value="scheduled" />
             <el-option label="生成中" value="generating" />
-            <el-option label="生成失败" value="failed" />
+            <el-option label="失败" value="failed" />
             <el-option label="发布中" value="publishing" />
             <el-option label="已发布" value="published" />
           </el-select>
@@ -153,7 +172,7 @@
         <el-table-column label="生成状态" width="110">
           <template #default="{ row }">
             <el-tag :type="getGenerateStatusType(row.publish_status)" size="small">
-              {{ getGenerateStatusText(row.publish_status) }}
+              {{ getArticleStatusText(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -196,7 +215,8 @@
               type="info"
               size="small"
               link
-              @click="goToBulkPublish"
+              :disabled="row.publish_status === 'publishing'"
+              @click="openPublishDialog(row)"
             >去发布</el-button>
             <el-button type="danger" size="small" link @click="deleteArticle(row)">删除</el-button>
           </template>
@@ -215,6 +235,88 @@
         <div class="markdown-body" v-html="renderMarkdown(currentArticle.content)"></div>
       </div>
     </el-dialog>
+
+    <!-- 发布配置对话框 -->
+    <el-dialog
+      v-model="showPublishDialog"
+      title="发布文章"
+      width="560px"
+      destroy-on-close
+    >
+      <div v-if="publishArticle" class="publish-summary">
+        <div class="publish-title">{{ publishArticle.title || '未命名文章' }}</div>
+        <div class="text-muted">选择发布账号后即可提交发布任务</div>
+      </div>
+
+      <el-form :model="publishForm" label-width="90px" class="publish-form">
+        <el-form-item label="发布方式">
+          <el-radio-group v-model="publishForm.mode">
+            <el-radio label="immediate">立即发布</el-radio>
+            <el-radio label="scheduled">定时发布</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item label="发布平台">
+          <el-select
+            v-model="publishForm.platform"
+            placeholder="请选择平台"
+            style="width: 100%"
+            @change="onPublishPlatformChange"
+          >
+            <el-option
+              v-for="platform in PLATFORM_OPTIONS"
+              :key="platform.value"
+              :label="platform.label"
+              :value="platform.value"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="发布账号">
+          <el-select
+            v-model="publishForm.accountId"
+            placeholder="请选择已授权账号"
+            style="width: 100%"
+            :loading="accountsLoading"
+            :disabled="!publishForm.platform"
+          >
+            <el-option
+              v-for="account in availablePublishAccounts"
+              :key="account.id"
+              :label="account.account_name || account.username || `账号 ${account.id}`"
+              :value="account.id"
+            >
+              <div class="account-option">
+                <span>{{ account.account_name || account.username || `账号 ${account.id}` }}</span>
+                <el-tag size="small" type="success">可用</el-tag>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="publishForm.platform && availablePublishAccounts.length === 0" class="form-tip">
+            当前平台暂无可用账号，请先在账号管理中完成授权。
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="publishForm.mode === 'scheduled'" label="发布时间">
+          <el-date-picker
+            v-model="publishForm.scheduledTime"
+            type="datetime"
+            placeholder="选择发布时间"
+            format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            :disabled-date="disabledDate"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="showPublishDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submittingPublish" @click="submitPublish">
+          {{ publishForm.mode === 'scheduled' ? '配置定时发布' : '立即发布' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -222,12 +324,11 @@
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Refresh } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { geoKeywordApi, geoArticleApi } from '@/services/api'
+import { accountApi, geoKeywordApi, geoArticleApi, publishApi } from '@/services/api'
+import { getEnabledPlatforms } from '@/core/config/platform'
 import MarkdownIt from 'markdown-it'
 
-const router = useRouter()
 const md = new MarkdownIt({ html: true, linkify: true })
 const renderMarkdown = (content: string) => content ? md.render(content) : '暂无内容'
 
@@ -238,17 +339,19 @@ const articles = ref<any[]>([])
 const articlesLoading = ref(false)
 const generating = ref(false)
 const showPreviewDialog = ref(false)
+const showPublishDialog = ref(false)
 const currentArticle = ref<any>(null)
+const publishArticle = ref<any>(null)
 const filterProjectId = ref<number | null>(null)
 const filterPublishStatus = ref<string | null>(null)
+const accounts = ref<any[]>([])
+const accountsLoading = ref(false)
+const submittingPublish = ref(false)
 
 // 发布平台选项
-const PLATFORM_OPTIONS = [
-  { label: '知乎', value: 'zhihu' },
-  { label: '搜狐', value: 'sohu' },
-  { label: '百家号', value: 'baijiahao' },
-  { label: '头条', value: 'toutiao' }
-]
+const PLATFORM_OPTIONS = getEnabledPlatforms()
+  .filter(platform => platform.features?.article)
+  .map(platform => ({ label: platform.name, value: platform.id }))
 
 const generateForm = ref({
   projectId: null as number | null,
@@ -256,6 +359,13 @@ const generateForm = ref({
   targetPlatforms: [] as string[],
   publishStrategy: 'draft' as 'draft' | 'immediate' | 'scheduled',
   scheduledAt: '' as string
+})
+
+const publishForm = ref({
+  mode: 'immediate' as 'immediate' | 'scheduled',
+  platform: '',
+  accountId: null as number | null,
+  scheduledTime: ''
 })
 
 // 🌟 有效项目列表（过滤掉没有 id 的项目，防止 el-option 报错）
@@ -283,9 +393,23 @@ const filteredArticles = computed(() => {
   return result
 })
 
+const availablePublishAccounts = computed(() => {
+  if (!publishForm.value.platform) return []
+  return accounts.value.filter(account => {
+    const status = Number(account.status)
+    return account.platform === publishForm.value.platform && status === 1
+  })
+})
+
 // 状态判断辅助函数
 const isGenerating = (row: any) => row.publish_status === 'generating'
-const isGenerated = (row: any) => ['completed', 'scheduled', 'published', 'publishing'].includes(row.publish_status)
+const hasGeneratedContent = (row: any) => {
+  return !!row?.title && !!row?.content && !String(row.title).includes('创作中') && !String(row.content).includes('正在努力写作')
+}
+const isGenerated = (row: any) => {
+  return ['completed', 'scheduled', 'published', 'publishing'].includes(row.publish_status) ||
+    (row.publish_status === 'failed' && hasGeneratedContent(row))
+}
 
 // 数据加载
 const loadProjects = async () => {
@@ -328,6 +452,26 @@ const loadArticles = async () => {
     console.error('加载文章失败:', error)
   } finally {
     articlesLoading.value = false
+  }
+}
+
+const normalizeListResponse = (res: any) => {
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.data)) return res.data
+  if (Array.isArray(res?.data?.items)) return res.data.items
+  if (Array.isArray(res?.items)) return res.items
+  return []
+}
+
+const loadAccounts = async () => {
+  accountsLoading.value = true
+  try {
+    const res: any = await accountApi.getList({ status: 1 })
+    accounts.value = normalizeListResponse(res)
+  } catch (error) {
+    console.error('加载账号失败:', error)
+  } finally {
+    accountsLoading.value = false
   }
 }
 
@@ -386,8 +530,9 @@ const pollArticleGeneration = async () => {
 
     // 如果文章状态为 failed，也停止
     if (updatedArticle && updatedArticle.publish_status === 'failed') {
-      console.log('文章生成失败')
-      ElMessage.error(updatedArticle.error_msg || '文章生成失败')
+      const failedText = hasGeneratedContent(updatedArticle) ? '发布失败' : '文章生成失败'
+      console.log(failedText)
+      ElMessage.error(updatedArticle.error_msg || failedText)
       return
     }
 
@@ -422,16 +567,79 @@ const previewArticle = (article: any) => {
   showPreviewDialog.value = true
 }
 
-// 前往批量发布页面
-const goToBulkPublish = () => {
-  // 将当前选择的关键词信息传递给发布页面
-  router.push({
-    path: '/publish/bulk',
-    query: {
-      projectId: filterProjectId.value,
-      publishStatus: 'completed'
+const getDefaultPlatform = (article: any) => {
+  if (article.platform) return article.platform
+  if (Array.isArray(article.target_platforms) && article.target_platforms.length > 0) {
+    return article.target_platforms[0]
+  }
+  if (generateForm.value.targetPlatforms[0]) return generateForm.value.targetPlatforms[0]
+  const firstAvailableAccount = accounts.value.find(account => Number(account.status) === 1)
+  return firstAvailableAccount?.platform || PLATFORM_OPTIONS[0]?.value || ''
+}
+
+const openPublishDialog = async (article: any) => {
+  publishArticle.value = article
+  if (accounts.value.length === 0) {
+    await loadAccounts()
+  }
+  publishForm.value = {
+    mode: article.publish_status === 'scheduled' ? 'scheduled' : 'immediate',
+    platform: getDefaultPlatform(article),
+    accountId: article.account_id || null,
+    scheduledTime: article.scheduled_at || ''
+  }
+  showPublishDialog.value = true
+  onPublishPlatformChange()
+}
+
+const onPublishPlatformChange = () => {
+  const hasSelectedAccount = availablePublishAccounts.value.some(account => account.id === publishForm.value.accountId)
+  if (!hasSelectedAccount) {
+    publishForm.value.accountId = availablePublishAccounts.value[0]?.id || null
+  }
+}
+
+const submitPublish = async () => {
+  if (!publishArticle.value) return
+  if (!publishForm.value.platform) {
+    ElMessage.warning('请选择发布平台')
+    return
+  }
+  if (!publishForm.value.accountId) {
+    ElMessage.warning('请选择发布账号')
+    return
+  }
+  if (publishForm.value.mode === 'scheduled' && !publishForm.value.scheduledTime) {
+    ElMessage.warning('请选择发布时间')
+    return
+  }
+
+  const accountId = publishForm.value.accountId
+  if (!accountId) return
+
+  submittingPublish.value = true
+  try {
+    const payload = {
+      article_ids: [publishArticle.value.id],
+      account_ids: [accountId]
     }
-  })
+    if (publishForm.value.mode === 'scheduled') {
+      await publishApi.schedule({
+        ...payload,
+        scheduled_time: publishForm.value.scheduledTime
+      })
+      ElMessage.success('定时发布已配置')
+    } else {
+      await publishApi.start(payload)
+      ElMessage.success('发布任务已启动')
+    }
+    showPublishDialog.value = false
+    await loadArticles()
+  } catch (error) {
+    console.error('提交发布失败:', error)
+  } finally {
+    submittingPublish.value = false
+  }
 }
 
 // 渲染工具
@@ -448,12 +656,26 @@ const getGenerateStatusType = (s: string) => {
   return statusMap[s] || 'info'
 }
 
+const isPublishFailure = (article: any) => {
+  if (!article || article.publish_status !== 'failed') return false
+  if (article.platform || article.account_id) return true
+  const message = article.error_msg || ''
+  return /发布|授权|Session|账号|频率|平台/.test(message)
+}
+
+const getArticleStatusText = (article: any) => {
+  if (article?.publish_status === 'failed') {
+    return isPublishFailure(article) ? '发布失败' : '生成失败'
+  }
+  return getGenerateStatusText(article?.publish_status)
+}
+
 const getGenerateStatusText = (s: string) => {
   const textMap = {
     generating: '生成中',
     completed: '已生成/待分发',
     scheduled: '已配置定时发布',
-    failed: '生成失败',
+    failed: '失败',
     publishing: '发布中',
     published: '已发布',
     draft: '草稿'
@@ -515,7 +737,8 @@ onMounted(() => {
   connect()
 
   // 监听发布进度事件，实时更新文章状态
-  onPublishProgress((progressData: any) => {
+  onPublishProgress((message: any) => {
+    const progressData = message?.data || message
     if (progressData.article_id && progressData.publish_status) {
       const articleIndex = articles.value.findIndex(a => a.id === progressData.article_id)
       if (articleIndex !== -1) {
@@ -557,83 +780,367 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* ==============================================
+   Articles Page — Warm Studio
+   Uses global design tokens; overrides only
+   where page-specific styling is needed.
+   ============================================== */
+
 .articles-page {
-  padding: 20px;
+  padding: 24px 28px;
+  min-height: 100%;
+  background: transparent;
 }
 
-.section {
-  background: #1e1e1e;
-  border-radius: 12px;
-  padding: 24px;
+// ---------- Page Hero ----------
+.page-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 28px 32px;
   margin-bottom: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(135deg, rgba(212, 168, 83, 0.06) 0%, transparent 50%),
+    var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: -60px;
+    right: -40px;
+    width: 280px;
+    height: 280px;
+    background: radial-gradient(circle, rgba(212, 168, 83, 0.10) 0%, transparent 70%);
+    pointer-events: none;
+  }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding: 4px 12px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(212, 168, 83, 0.18);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-head);
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.hero-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-stat {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hero-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-head);
+  line-height: 1;
+  font-family: var(--font-display);
+}
+
+.hero-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+// ---------- Section Cards ----------
+.section {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-thin);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+
+  &:hover {
+    border-color: var(--border-soft);
+  }
+
+  &.section-list {
+    padding-bottom: 20px;
+  }
 }
 
 .section-title {
-  color: #fff;
-  margin-bottom: 20px;
-  font-size: 18px;
+  color: var(--text-head);
+  margin-bottom: 16px;
+  font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+
+  .section-title {
+    margin-bottom: 0;
+  }
 }
 
 .header-left {
   display: flex;
   align-items: center;
+  gap: 12px;
 }
 
+// ---------- Generate Form ----------
+.generate-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-end;
+
+  :deep(.el-form-item) {
+    margin-bottom: 0;
+    margin-right: 8px;
+  }
+
+  :deep(.el-form-item__label) {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 13px;
+  }
+}
+
+// ---------- Typography ----------
 .text-muted {
-  color: #888;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .text-success {
-  color: #67c23a;
+  color: var(--success);
+  font-weight: 700;
 }
 
 .text-warning {
-  color: #e6a23c;
+  color: var(--warning);
+  font-weight: 700;
 }
 
 .text-danger {
-  color: #f56c6c;
+  color: var(--danger);
+  font-weight: 700;
 }
 
-.article-preview-scroll {
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: 20px;
-  background: #fff;
-  color: #333;
-  border-radius: 8px;
-}
-
-.markdown-body {
-  line-height: 1.8;
-
-  :deep(img) {
-    max-width: 100%;
-    border-radius: 8px;
-    margin: 10px 0;
-  }
-}
-
+// ---------- Title Cell ----------
 .title-cell {
   display: flex;
   align-items: center;
 
   .title-text {
     flex: 1;
+    color: var(--text-body);
+    font-weight: 500;
+  }
+}
+
+// ---------- Preview Scroll ----------
+.article-preview-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 24px;
+  background: #f5f0e7;
+  color: #2d2418;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(180, 160, 130, 0.2);
+
+  .markdown-body {
+    line-height: 1.85;
+    font-size: 15px;
+    color: #2d2418;
+
+    :deep(img) {
+      max-width: 100%;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+
+    :deep(h1), :deep(h2), :deep(h3) {
+      font-family: var(--font-display);
+      color: #1a1208;
+      margin-top: 1.4em;
+      margin-bottom: 0.5em;
+    }
+
+    :deep(code) {
+      background: #e8dfd0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      color: #5c3d1e;
+    }
+
+    :deep(pre) {
+      background: #2d2418;
+      color: #e6dccb;
+      padding: 16px 20px;
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+
+      code {
+        background: transparent;
+        color: inherit;
+      }
+    }
+
+    :deep(blockquote) {
+      border-left: 3px solid var(--accent);
+      padding-left: 16px;
+      color: #6b5d48;
+      margin: 14px 0;
+    }
+
+    :deep(a) {
+      color: #b8861e;
+      text-decoration: none;
+      &:hover { text-decoration: underline; }
+    }
+  }
+}
+
+// ---------- Publish Dialog ----------
+.publish-summary {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.publish-title {
+  color: var(--text-head);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.publish-form {
+  :deep(.el-form-item__label) {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+}
+
+.account-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.form-tip {
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+// ==============================================
+//   Element Plus Page-Level Overrides
+//   (global overrides handle most; these are
+//    Articles-page-specific refinements)
+// ==============================================
+
+// Table — page-specific refinements
+:deep(.el-table) {
+  .el-table__header-wrapper th {
+    background: rgba(200, 185, 160, 0.04) !important;
+    border-bottom: 1px solid var(--border-thin) !important;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 14px 0;
   }
 
-  el-tag {
-    flex-shrink: 0;
+  .el-table__body-wrapper td {
+    border-bottom: 1px solid rgba(200, 185, 160, 0.04);
+    padding: 14px 0;
+    color: var(--text-body);
+    font-size: 13px;
+  }
+
+  .el-table__row:hover td {
+    background: rgba(212, 168, 83, 0.05) !important;
+  }
+}
+
+// Tags — rounded pill style
+:deep(.el-tag) {
+  border-radius: 20px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0 10px;
+}
+
+// Generate button — prominent gold
+.generate-form :deep(.el-button--primary) {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 10px 24px;
+  transition: all var(--duration-normal) var(--ease-out);
+
+  &:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(212, 168, 83, 0.32);
+  }
+}
+
+// Refresh button
+.section-header :deep(.el-button--primary.is-plain) {
+  border-color: var(--border-soft);
+  color: var(--text-muted);
+
+  &:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 }
 </style>

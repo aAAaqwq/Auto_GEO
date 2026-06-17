@@ -56,6 +56,9 @@ def check_and_fix_database():
             ("publish_logs", "TEXT"),
             ("platform_url", "TEXT"),
             ("index_status", "TEXT DEFAULT 'uncheck'"),
+            ("fact_risk_score", "INTEGER"),
+            ("duplication_score", "INTEGER"),
+            ("platform_risk_score", "INTEGER"),
         ]
 
         for col_name, col_def in columns_to_check:
@@ -151,6 +154,91 @@ def check_and_fix_database():
                 logger.success("✓ 第一个用户已设为管理员")
             except Exception as e:
                 logger.error(f"✗ 设置管理员失败: {e}")
+                conn.rollback()
+
+        # 检查accounts表结构（用户隔离、分组、标签、健康度字段）
+        cursor.execute("PRAGMA table_info(accounts)")
+        account_columns = cursor.fetchall()
+        account_existing = [col[1] for col in account_columns]
+
+        account_columns_to_check = [
+            ("user_id", "INTEGER"),
+            ("deleted_at", "DATETIME"),
+            ("group_id", "INTEGER"),
+            ("tags", "TEXT"),
+            ("health_score", "INTEGER DEFAULT 100"),
+            ("last_check_time", "DATETIME"),
+            ("auth_expires_at", "DATETIME"),
+            ("browser_type", "VARCHAR(20) DEFAULT 'playwright'"),
+            ("adspower_profile_id", "VARCHAR(100)"),
+        ]
+
+        added_account_columns = set()
+        for col_name, col_def in account_columns_to_check:
+            if col_name not in account_existing:
+                logger.info(f"添加accounts缺失的列: {col_name}...")
+                try:
+                    cursor.execute(f"ALTER TABLE accounts ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    added_account_columns.add(col_name)
+                    logger.success(f"✓ accounts.{col_name} 列添加成功")
+                except Exception as e:
+                    logger.error(f"✗ 添加 accounts.{col_name} 列失败: {e}")
+                    conn.rollback()
+
+        # SQLite不能安全地用ALTER TABLE后补外键；索引可以后补，避免列表查询变慢。
+        account_available_columns = set(account_existing) | added_account_columns
+        account_indexes_to_check = [
+            ("ix_accounts_user_id", "user_id"),
+            ("ix_accounts_deleted_at", "deleted_at"),
+            ("ix_accounts_group_id", "group_id"),
+        ]
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+        for index_name, col_name in account_indexes_to_check:
+            if col_name in account_available_columns and index_name not in existing_indexes:
+                try:
+                    cursor.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON accounts ({col_name})")
+                    conn.commit()
+                except Exception as e:
+                    logger.warning(f"accounts.{col_name} 索引创建失败: {e}")
+                    conn.rollback()
+
+        # Keep legacy SQLite databases compatible with the current AutoPublishTask model.
+        cursor.execute("PRAGMA table_info(auto_publish_tasks)")
+        task_columns = cursor.fetchall()
+        task_existing = [col[1] for col in task_columns]
+
+        task_columns_to_check = [
+            ("triggered_by_user_id", "INTEGER"),
+            ("feishu_event_id", "VARCHAR(200)"),
+        ]
+
+        added_task_columns = set()
+        for col_name, col_def in task_columns_to_check:
+            if col_name not in task_existing:
+                logger.info(f"Adding missing auto_publish_tasks column: {col_name}...")
+                try:
+                    cursor.execute(f"ALTER TABLE auto_publish_tasks ADD COLUMN {col_name} {col_def}")
+                    conn.commit()
+                    added_task_columns.add(col_name)
+                    logger.success(f"auto_publish_tasks.{col_name} added")
+                except Exception as e:
+                    logger.error(f"Failed to add auto_publish_tasks.{col_name}: {e}")
+                    conn.rollback()
+
+        task_available_columns = set(task_existing) | added_task_columns
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        existing_indexes = {row[0] for row in cursor.fetchall()}
+        if "triggered_by_user_id" in task_available_columns and "ix_apt_triggered_by_user_id" not in existing_indexes:
+            try:
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_apt_triggered_by_user_id "
+                    "ON auto_publish_tasks (triggered_by_user_id)"
+                )
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to create auto_publish_tasks.triggered_by_user_id index: {e}")
                 conn.rollback()
 
         logger.success("数据库表结构检查和修复完成")

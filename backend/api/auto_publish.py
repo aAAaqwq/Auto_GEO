@@ -321,7 +321,7 @@ async def create_auto_publish_task(
     # 8. 根据执行类型启动任务
     if request.exec_type == "immediate":
         # 立即执行：启动后台任务
-        asyncio.create_task(execute_auto_publish_task(task.id, db))
+        asyncio.create_task(execute_auto_publish_task(task.id))
     elif request.exec_type == "scheduled":
         # 定时执行：调度器会处理
         pass
@@ -459,7 +459,7 @@ async def start_auto_publish_task(
         raise HTTPException(status_code=400, detail=f"当前任务状态为 {task.status}，无法启动")
 
     # 启动后台执行任务
-    asyncio.create_task(execute_auto_publish_task(task_id, db))
+    asyncio.create_task(execute_auto_publish_task(task_id))
 
     logger.info(f"自动发布任务已手动启动: {task_id}")
 
@@ -533,7 +533,7 @@ async def retry_auto_publish_task(
     db.commit()
 
     # 启动后台执行任务
-    asyncio.create_task(execute_auto_publish_task(task_id, db))
+    asyncio.create_task(execute_auto_publish_task(task_id))
 
     logger.info(f"自动发布任务已重试: {task_id}")
 
@@ -543,7 +543,7 @@ async def retry_auto_publish_task(
 # ==================== 任务执行核心逻辑 ====================
 
 
-async def execute_auto_publish_task(task_id: int, db: Session):
+async def execute_auto_publish_task(task_id: int):
     """
     执行自动发布任务（后台异步任务）
 
@@ -552,6 +552,8 @@ async def execute_auto_publish_task(task_id: int, db: Session):
     2. 逐个执行子任务（发布文章到账号）
     3. 更新进度和结果
     4. 处理错误和重试
+
+    注意：不再接收 db 参数，函数内部自行管理 Session 生命周期。
     """
     # 获取新的session（避免在异步线程中使用过期的session）
     from backend.database import SessionLocal

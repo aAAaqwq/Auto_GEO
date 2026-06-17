@@ -92,6 +92,7 @@ class BrowserBridgeManager {
       // 准备启动参数
       const pythonExe = BRIDGE_CONFIG.pythonPath
       const bridgeDir = BRIDGE_CONFIG.bridgeDir
+      const projectRoot = join(bridgeDir, '..')
 
       console.log('[BrowserBridge] 📂 桥接服务目录:', bridgeDir)
       console.log('[BrowserBridge] 🐍 Python 命令:', pythonExe)
@@ -99,7 +100,7 @@ class BrowserBridgeManager {
       // 启动 Python 桥接服务进程
       this.process = spawn(pythonExe, ['-c', `
 import sys
-sys.path.insert(0, '${bridgeDir.replace(/\\/g, '/')}')
+sys.path.insert(0, '${projectRoot.replace(/\\/g, '/')}')
 from backend.services.local_browser_bridge import local_browser_bridge
 import asyncio
 
@@ -118,11 +119,13 @@ async def main():
 
 asyncio.run(main())
 `], {
-        cwd: bridgeDir,
+        cwd: projectRoot,
         shell: false,
         windowsHide: false, // 显示控制台，方便调试
         env: {
           ...process.env,
+          PYTHONPATH: projectRoot,
+          PYTHONUTF8: '1',
           PYTHONIOENCODING: 'utf-8',
           DISPLAY: process.env.DISPLAY || ':0'
         },

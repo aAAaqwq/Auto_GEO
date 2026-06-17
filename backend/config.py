@@ -51,6 +51,10 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173",
     "capacitor://localhost",
     "http://localhost",
+    # 虚拟机 / 局域网访问
+    "http://192.168.150.1:5173",
+    "http://192.168.150.1:8001",
+    "http://192.168.150.130:5173",
     # 生产服务器（主）
     "http://8.138.59.152:5173",
     "http://8.138.59.152:8001",
@@ -530,6 +534,30 @@ N8N_CALLBACK_URL = os.getenv("N8N_CALLBACK_URL", f"http://{HOST}:{PORT}/api/geo/
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
 
+# GLM API配置（用于客户资料结构化提取，优先级高于 DeepSeek）
+GLM_API_KEY = os.getenv("GLM_API_KEY", "")
+GLM_API_URL = os.getenv("GLM_API_URL", "https://open.bigmodel.cn/api/paas/v4")
+GLM_MODEL = os.getenv("GLM_MODEL", "glm-4-flash-250414")
+
+# 后台智能体大模型解析开关
+# 默认关闭，避免在没有用户明确授权时调用外部模型 API。
+AUTOGEO_CONVERSATION_USE_LLM = os.getenv("AUTOGEO_CONVERSATION_USE_LLM", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+AUTOGEO_CONVERSATION_LLM_PROVIDER = os.getenv("AUTOGEO_CONVERSATION_LLM_PROVIDER", "deepseek")
+AUTOGEO_CONVERSATION_LLM_API_KEY = os.getenv("AUTOGEO_CONVERSATION_LLM_API_KEY", "")
+AUTOGEO_CONVERSATION_LLM_BASE_URL = os.getenv(
+    "AUTOGEO_CONVERSATION_LLM_BASE_URL",
+    os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1"),
+)
+AUTOGEO_CONVERSATION_LLM_MODEL = os.getenv(
+    "AUTOGEO_CONVERSATION_LLM_MODEL",
+    os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+)
+
 # ==================== RAGFlow 配置 ====================
 # RAGFlow 服务地址
 RAGFLOW_BASE_URL = os.getenv("RAGFLOW_BASE_URL", "https://ragflow.xinzhixietong.com")
@@ -544,6 +572,8 @@ if not RAGFLOW_API_KEY:
 RAGFLOW_DATASET_ID = os.getenv("RAGFLOW_DATASET_ID", "dff2935cfc2011f0b36f0e3309b7ec55")
 # RAGFlow 知识库名称（自动创建时使用）
 RAGFLOW_DATASET_NAME = os.getenv("RAGFLOW_DATASET_NAME", "reference_articles_kb")
+# RAGFlow 知识库解析使用的向量模型；为空时客户端会尝试复用已有知识库的模型
+RAGFLOW_EMBEDDING_MODEL = os.getenv("RAGFLOW_EMBEDDING_MODEL", "text-embedding-v4@Tongyi-Qianwen")
 # 去重相似度阈值
 RAGFLOW_DUPLICATE_THRESHOLD = float(os.getenv("RAGFLOW_DUPLICATE_THRESHOLD", "0.85"))
 # 检索返回数量
@@ -579,3 +609,15 @@ AI_PLATFORMS = {
 # 收录检测定时任务配置
 INDEX_CHECK_HOUR = 2  # 每天凌晨2点执行
 INDEX_CHECK_MINUTE = 0
+
+# ==================== AdsPower 指纹浏览器 ====================
+ADSPOWER_API_URL = os.getenv("ADSPOWER_API_URL", "http://local.adspower.net:50325")
+ADSPOWER_ENABLED = os.getenv("ADSPOWER_ENABLED", "false").lower() == "true"
+
+# ==================== 飞书配置 ====================
+FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
+FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+FEISHU_VERIFICATION_TOKEN = os.getenv("FEISHU_VERIFICATION_TOKEN", "")
+FEISHU_ENCRYPT_KEY = os.getenv("FEISHU_ENCRYPT_KEY", "")
+AUTOGEO_AGENT_TOKEN = os.getenv("AUTOGEO_AGENT_TOKEN", "")
+FEISHU_BOT_NAME = os.getenv("FEISHU_BOT_NAME", "AutoGeo助手")

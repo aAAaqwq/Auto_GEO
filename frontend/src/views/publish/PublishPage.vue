@@ -193,11 +193,13 @@ const loadMonitorData = async () => {
   loading.value = true
   try {
     // 获取所有正在运行或最近完成的任务
-    const res: any = await autoPublishApi.getTasks({
-      status: ['pending', 'running'],
-      limit: 100
-    })
-    const tasks = res.data?.items || []
+    // 分别获取 pending 和 running 状态的任务再合并
+    const [pendingRes, runningRes]: any[] = await Promise.all([
+      autoPublishApi.getTasks({ status: 'pending', limit: 100 }),
+      autoPublishApi.getTasks({ status: 'running', limit: 100 }),
+    ])
+    const tasks = pendingRes.data?.items || []
+    const runningTasks = runningRes.data?.items || []
 
     // 获取已完成任务的记录
     const completedRes: any = await autoPublishApi.getTasks({
@@ -206,8 +208,8 @@ const loadMonitorData = async () => {
     })
     const completedTasks = completedRes.data?.items || []
 
-    // 合并任务数据
-    const allTasks = [...tasks, ...completedTasks]
+    // 合并任务数据（pending + running + completed）
+    const allTasks = [...tasks, ...runningTasks, ...completedTasks]
 
     // 按平台分组统计
     const platforms: Record<string, any> = {}

@@ -21,6 +21,7 @@ class CDPBrowserManager:
     """
 
     _instance: Optional["CDPBrowserManager"] = None
+    _playwright = None
     _browser: Optional[Browser] = None
     _contexts: Dict[str, BrowserContext] = {}
 
@@ -66,17 +67,20 @@ class CDPBrowserManager:
         logger.info(f"🔗 正在通过CDP连接本地浏览器: {target_url}")
 
         try:
-            async with async_playwright() as p:
-                # 通过CDP连接到已有浏览器
-                self._browser = await p.chromium.connect_over_cdp(target_url)
+            # 保持 playwright 实例，不能用 async with (context manager 退出后会 stop)
+            if self._playwright is None:
+                self._playwright = await async_playwright().start()
 
-                if self._browser.is_connected():
-                    logger.info("✅ CDP浏览器连接成功！")
-                    return True
-                else:
-                    logger.error("❌ CDP浏览器连接失败")
-                    self._browser = None
-                    return False
+            # 通过CDP连接到已有浏览器
+            self._browser = await self._playwright.chromium.connect_over_cdp(target_url)
+
+            if self._browser.is_connected():
+                logger.info("✅ CDP浏览器连接成功！")
+                return True
+            else:
+                logger.error("❌ CDP浏览器连接失败")
+                self._browser = None
+                return False
 
         except Exception as e:
             logger.error(f"❌ CDP连接失败: {e}")
@@ -91,11 +95,19 @@ class CDPBrowserManager:
             是否成功断开
         """
         try:
+            # 关闭所有上下文
+            for ctx_id in list(self._contexts.keys()):
+                await self.close_context(ctx_id)
+
+            # CDP连接不关闭远程浏览器, 只断开连接
             if self._browser:
-                await self._browser.close()
                 self._browser = None
-                self._contexts.clear()
-                logger.info("✅ CDP浏览器已断开连接")
+                logger.info("✅ CDP浏览器连接已断开")
+
+            # 停止 playwright 实例
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
             return True
         except Exception as e:
             logger.error(f"断开CDP连接失败: {e}")

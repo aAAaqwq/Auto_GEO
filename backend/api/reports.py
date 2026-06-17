@@ -75,13 +75,13 @@ class PlatformStatsResponse(BaseModel):
 
 
 class ArticleStatsResponse(BaseModel):
-    """前端仪表盘统计数据响应"""
+    """GeoArticle 文章统计响应"""
 
-    total_articles: int
-    published_count: int
-    indexed_count: int
-    index_rate: float
-    platform_distribution: Dict[str, int]
+    total: int
+    generating: int
+    completed: int
+    published: int
+    failed: int
 
 
 # ==================== 报表API ====================

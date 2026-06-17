@@ -566,8 +566,8 @@ async def batch_publish_geo_articles(
 
     # 2. 检查账号状态和文章状态
     disabled_accounts = [a.account_name for a in accounts if a.status != 1]
-    # 支持 completed 或 scheduled 状态的文章
-    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["completed", "scheduled"]]
+    # 支持 draft、published、completed 或 scheduled 状态的文章
+    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["draft", "published", "completed", "scheduled"]]
 
     if disabled_accounts:
         raise HTTPException(status_code=400, detail=f"以下账号未授权或已禁用: {', '.join(disabled_accounts)}")
@@ -774,8 +774,8 @@ async def start_publish_immediately(
         missing = set(request.account_ids) - set(found_ids)
         raise HTTPException(status_code=404, detail=f"账号不存在: {missing}")
 
-    # 2. 检查文章状态（支持 completed、scheduled 或 failed）
-    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["completed", "scheduled", "failed"]]
+    # 2. 检查文章状态（支持 draft、published、completed、scheduled 或 failed）
+    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["draft", "published", "completed", "scheduled", "failed"]]
     if invalid_articles:
         raise HTTPException(
             status_code=400,
@@ -795,6 +795,20 @@ async def start_publish_immediately(
             article.publish_status = "publishing"
             article.scheduled_at = None  # 清除定时设置
 
+            existing = (
+                db.query(PublishRecord)
+                .filter(PublishRecord.article_id == article.id, PublishRecord.account_id == account.id)
+                .first()
+            )
+            if not existing:
+                db.add(
+                    PublishRecord(
+                        article_id=article.id,
+                        account_id=account.id,
+                        publish_status=0,
+                    )
+                )
+
     db.commit()
 
     # 5. 创建发布任务并立即执行 - 使用 GeoArticleService 处理 GeoArticle
@@ -813,18 +827,26 @@ async def start_publish_immediately(
                 account_id = account.id
 
                 try:
+                    db_article = db.query(GeoArticle).filter(GeoArticle.id == article_id).first()
+                    if db_article:
+                        db_article.platform = account.platform
+                        db_article.account_id = account_id
+                        db_article.publish_status = "publishing"
+                        db_article.scheduled_at = None
+                        db.commit()
+
                     # 执行发布
                     success = await service.execute_publish(article_id)
+                    result_article = db.query(GeoArticle).filter(GeoArticle.id == article_id).first()
+                    platform_url = result_article.platform_url if result_article else None
+                    error_msg = result_article.error_msg if result_article else "发布失败"
 
                     # 更新任务状态
                     if success:
                         publish_task_manager.update_sub_task(
-                            task_id, article_id, account_id, PublishStatus.SUCCESS, article.platform_url, None
+                            task_id, article_id, account_id, PublishStatus.SUCCESS, platform_url, None
                         )
                     else:
-                        # 获取错误信息
-                        db_article = db.query(GeoArticle).filter(GeoArticle.id == article_id).first()
-                        error_msg = db_article.error_msg if db_article else "发布失败"
                         publish_task_manager.update_sub_task(
                             task_id, article_id, account_id, PublishStatus.FAILED, None, error_msg
                         )
@@ -843,8 +865,9 @@ async def start_publish_immediately(
                                     "platform": account.platform,
                                     "platform_name": PLATFORMS.get(account.platform, {}).get("name", account.platform),
                                     "status": PublishStatus.SUCCESS if success else PublishStatus.FAILED,
-                                    "platform_url": article.platform_url if success else None,
-                                    "error_msg": None if success else article.error_msg,
+                                    "publish_status": "published" if success else "failed",
+                                    "platform_url": platform_url if success else None,
+                                    "error_msg": None if success else error_msg,
                                 },
                             }
                         )
@@ -904,8 +927,8 @@ async def schedule_publish(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"时间格式错误: {str(e)}")
 
-    # 3. 检查文章状态（必须是 completed）
-    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["completed"]]
+    # 3. 检查文章状态（draft、published 或 completed）
+    invalid_articles = [a.title for a in geo_articles if a.publish_status not in ["draft", "published", "completed"]]
     if invalid_articles:
         raise HTTPException(
             status_code=400,
@@ -924,6 +947,20 @@ async def schedule_publish(
             article.account_id = account.id
             article.publish_status = "scheduled"
             article.scheduled_at = scheduled_time
+
+            existing = (
+                db.query(PublishRecord)
+                .filter(PublishRecord.article_id == article.id, PublishRecord.account_id == account.id)
+                .first()
+            )
+            if not existing:
+                db.add(
+                    PublishRecord(
+                        article_id=article.id,
+                        account_id=account.id,
+                        publish_status=0,
+                    )
+                )
 
     db.commit()
 

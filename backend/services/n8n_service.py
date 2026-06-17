@@ -55,6 +55,7 @@ class GenerateQuestionsRequest(BaseModel):
 
 class GeoArticleRequest(BaseModel):
     keyword: str
+    company_name: str = ""
     requirements: str = ""
     word_count: int = 1200
     # 异步回调模式新增字段
@@ -97,6 +98,44 @@ class N8nService:
         self.config = config or N8nConfig()
         self.log = logger.bind(module="AI中台")
         self._client: Optional[httpx.AsyncClient] = None
+
+    @staticmethod
+    def _build_geo_article_prompt(keyword: str, company_name: str, requirements: str) -> str:
+        """Render the GEO article prompt used by the n8n workflow for debugging."""
+        knowledge_requirements = (
+            requirements
+            or "当前未提供客户知识库资料，请按通用行业知识写作，但不要编造具体资质、客户案例、价格或承诺。"
+        )
+        return f"""请根据公司【{company_name}】，为关键词”{keyword}”撰写一篇深度、专业的 SEO 优化文章。
+
+### 核心要求：
+1. **身份设定**：你是一名拥有 10 年经验的 SEO 营销专家，撰写风格稳重、专业，适合 B2B 企业发布。
+2. **公司植入**：文章中需要自然地提及公司【{company_name}】，出现 2-3 次即可，植入位置要合理不突兀（如开篇行业背景介绍、中间案例分析、结尾推荐总结等位置自然带出），严禁生硬堆砌或强行插入公司名。
+3. **格式要求**：文章必须使用 **Markdown** 格式进行排版，包含 H1 标题、H2/H3 小标题。
+4. **图文并茂（安全加固版）**：
+   - 请在文章的第 1、第 2 和第 3 个 H2 小标题下方，分别插入一张相关的配图。
+   - 图片语法严格使用：`![描述](https://loremflickr.com/800/450/{{关键词}},business,office/all?lock={{锁定数字}})`
+   - **配图关键词约束**：
+     *   将 `{{关键词}}` 替换为 1 个具体的英文实物词（如：truck, office, skyscraper, desk, computer）。
+     *   将 `{{锁定数字}}` 替换为 1 个 1-9999 的固定数字。同一篇文章内 3 张图使用不同数字，确保预览与发布时图片一致。
+     *   **严禁使用**可能引起误解或返回血腥内容的词，如：service, help, blood, surgery, dead。
+     *   **强制后缀**：必须保持 `,business,office/all` 结尾，这会确保图片在你的关键词基础上，必须同时带有”商务”和”办公”标签，从而过滤掉非专业画面。
+5. **字数要求**：正文内容在 800-1200 字之间。
+
+### 客户知识库参考资料（如有）：
+{knowledge_requirements}
+
+### 知识库使用规则：
+- 优先使用上述资料中的公司、产品、服务、应用场景、优势等事实信息。
+- 资料不足时，可以补充通用行业观点，但不要编造知识库中没有的资质、案例、价格、承诺。
+- 不要逐字罗列资料，要自然融入文章。
+
+### 输出格式：
+你必须**严格只返回**以下标准的 JSON 格式，不要包含任何多余的解释文字、不要包含 Markdown 的代码块标识符（如 ```json ）：
+{{
+  "title": "文章标题",
+  "content": "这里是完整的 Markdown 正文，图片链接必须按照上述格式插入"
+}}"""
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -218,6 +257,7 @@ class N8nService:
     async def generate_geo_article(
         self,
         keyword: str,
+        company_name: str = "",
         requirements: str = "",
         word_count: int = 1200,
         callback_url: Optional[str] = None,
@@ -230,15 +270,27 @@ class N8nService:
         # 使用配置的回调URL，如果未提供则使用默认值
         final_callback_url = callback_url or self.config.CALLBACK_URL
 
-        self.log.info(f"📝 正在撰写GEO文章 (关键词: {keyword}), 回调URL: {final_callback_url})...")
+        self.log.info(f"📝 正在撰写GEO文章 (关键词: {keyword}, 公司: {company_name}), 回调URL: {final_callback_url})...")
         payload = GeoArticleRequest(
             keyword=keyword,
+            company_name=company_name,
             requirements=requirements,
             word_count=word_count,
             callback_url=final_callback_url,
             article_id=article_id,
         ).model_dump(exclude_none=True)
         # 使用短超时（触发成功即可），生成结果通过回调返回
+        debug_prompt = self._build_geo_article_prompt(keyword, company_name, requirements)
+        prompt_log = (
+            "\n========== GEO ARTICLE N8N PROMPT BEGIN ==========\n"
+            f"article_id: {article_id}\n"
+            f"keyword: {keyword}\n"
+            f"company_name: {company_name}\n"
+            f"{debug_prompt}\n"
+            "========== GEO ARTICLE N8N PROMPT END =========="
+        )
+        self.log.info(prompt_log)
+        print(prompt_log, flush=True)
         return await self._call_webhook("geo-article-generate", payload, timeout=self.config.TIMEOUT_SHORT)
 
     async def analyze_index_check(

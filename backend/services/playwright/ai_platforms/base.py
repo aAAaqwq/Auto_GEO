@@ -444,6 +444,12 @@ class AIPlatformChecker(ABC):
             "[class*='response']",
             "[class*='result']",
             "[class*='content-body']",
+            "[class*='message-content']",
+            "[class*='bot-message']",
+            "[class*='reply-content']",
+            "[class*='conversation-turn']",
+            "[class*='chat-message']:last-of-type",
+            "[class*='message-item']:last-child [class*='content']",
         ]
 
         answer_text = ""
@@ -524,51 +530,70 @@ class AIPlatformChecker(ABC):
                 "点赞",
                 "点踩",
                 "分享",
+                "PPT 生成",
+                "图像生成",
+                "AI 写作",
+                "文档处理",
+                "网页摘要",
+                "视频理解",
+                "图片理解",
+                "录音笔",
+                "快捷方式",
+                "正在思考",
+                "参考来源",
             ]
 
             potential_answers = []
             current_block = []
+            consecutive_short = 0
 
             for line in lines:
                 # 过滤极短行
                 if len(line) < 5:
+                    consecutive_short += 1
                     continue
 
+                # 检测是否为 UI 菜单项（短行 + 匹配忽略关键词）
                 is_ignored = False
-                # 只有短行才检查忽略关键词，防止误伤长文中的正常词汇
                 if len(line) < 100:
                     for keyword in ignored_keywords:
                         if keyword in line:
                             is_ignored = True
                             break
 
-                if is_ignored:
-                    # 如果遇到忽略词，仅跳过该行，不要轻易打断当前文本块
-                    # 除非连续遇到多个忽略行，或者忽略行具有明显的分割性质（如"新对话"）
-                    # 这里简化处理：直接跳过，尽可能合并上下文
+                # 检测是否为纯 UI 元素：很短（< 20 字符）且看起来像菜单项
+                is_ui_element = False
+                if len(line) < 20 and not any(c in line for c in '，。！？；：、'):
+                    # 中文短词组，大概率是菜单/按钮
+                    is_ui_element = True
+
+                if is_ignored or is_ui_element:
+                    consecutive_short += 1
+                    # 连续超过 3 个 UI 行 → 分割块
+                    if consecutive_short >= 3 and current_block:
+                        potential_answers.append("\n".join(current_block))
+                        current_block = []
                     continue
 
-                # 过滤掉包含问题的行（避免把问题当成回答）
+                consecutive_short = 0
+
+                # 过滤掉包含问题的行
                 if question in line:
                     continue
 
-                # 将连续的非忽略行视为一个块
                 current_block.append(line)
 
             # 添加最后一个块
             if current_block:
                 potential_answers.append("\n".join(current_block))
 
-            # 尝试寻找最长的一段文本
-            # 改进：排除看起来像侧边栏菜单的块（多行且每行都很短）
+            # 寻找最长且质量最好的文本块
             longest_block = ""
             for block in potential_answers:
-                # 检查是否为疑似菜单/侧边栏
                 lines_in_block = block.split("\n")
+                # 跳过疑似侧边栏/菜单块
                 if len(lines_in_block) > 5:
-                    # 计算平均行长
                     avg_len = sum(len(l) for l in lines_in_block) / len(lines_in_block)
-                    # 如果平均行长很短（例如小于30字符），且包含多个换行，极大概率是侧边栏列表
                     if avg_len < 30:
                         self._log("debug", f"跳过疑似侧边栏块: 行数={len(lines_in_block)}, 平均长度={avg_len:.1f}")
                         continue
@@ -592,6 +617,60 @@ class AIPlatformChecker(ABC):
         else:
             self._log("warning", "未能获取到回答内容")
             return {"success": False, "answer": "", "selector": None, "length": 0}
+
+    @staticmethod
+    def _extract_company_layers(company: str):
+        """从完整公司名提取分层匹配词"""
+        locations = [
+            "北京", "上海", "深圳", "广州", "杭州", "南京", "成都", "武汉",
+            "重庆", "西安", "天津", "苏州", "东莞", "佛山", "合肥", "长沙",
+            "郑州", "济南", "青岛", "大连", "厦门", "福州", "无锡", "宁波",
+            "温州", "石家庄", "哈尔滨", "沈阳", "昆明", "贵阳", "南宁",
+            "海口", "珠海", "惠州", "中山", "中国", "香港", "澳门", "台湾",
+        ]
+        suffixes = [
+            "股份有限公司", "有限责任公司", "集团有限公司",
+            "科技有限公司", "信息技术有限公司", "网络技术有限公司",
+            "实业有限公司", "贸易有限公司", "投资有限公司", "控股有限公司",
+            "发展有限公司", "有限公司",
+        ]
+        industries = [
+            "信息技术", "网络技术", "生物医药", "新能源",
+            "科技", "实业", "贸易", "投资", "控股", "发展",
+            "信息", "软件", "数据", "智能", "互联", "电子", "通信",
+            "医药", "医疗", "教育", "文化", "传媒", "广告", "咨询",
+            "服务", "房地产", "建筑", "装饰", "环保", "农业",
+            "食品", "餐饮", "旅游", "物流", "金融", "保险", "证券",
+        ]
+
+        name = company.strip()
+        core = name
+        for loc in sorted(locations, key=len, reverse=True):
+            if core.startswith(loc):
+                core = core[len(loc):]
+                break
+        for suf in sorted(suffixes, key=len, reverse=True):
+            if core.endswith(suf):
+                core = core[:-len(suf)]
+                break
+        industry_matched = ""
+        for ind in sorted(industries, key=len, reverse=True):
+            if core.endswith(ind):
+                industry_matched = ind
+                core = core[:-len(ind)]
+                break
+
+        core = core.strip()
+        layers = []
+        seen = set()
+        def add(s):
+            if s and len(s) >= 2 and s not in seen:
+                seen.add(s); layers.append(s)
+        add(core)
+        if core and industry_matched:
+            add(core + industry_matched)
+        add(name)
+        return layers
 
     def check_keywords_in_text(self, text: str, keyword: str, company: str) -> Dict[str, Any]:
         """
@@ -617,19 +696,39 @@ class AIPlatformChecker(ABC):
 
         text_lower = clean_str(text)
         keyword_lower = clean_str(keyword)
-        company_lower = clean_str(company)
 
         keyword_count = text_lower.count(keyword_lower)
-        company_count = text_lower.count(company_lower)
-
         keyword_positions = [m.start() for m in re.finditer(re.escape(keyword_lower), text_lower)]
+
+        # 公司名分层匹配
+        company_layers = self._extract_company_layers(company)
+        self._log("info", f"公司名分层: {' > '.join(company_layers)}")
+
+        company_found = False
+        company_count = 0
+        company_matched = ""
+        company_positions = []
+
+        for layer in company_layers:
+            layer_lower = clean_str(layer)
+            if len(layer_lower) < 2:
+                continue
+            count = text_lower.count(layer_lower)
+            if count > 0:
+                company_found = True
+                company_count = count
+                company_matched = layer
+                company_positions = [m.start() for m in re.finditer(re.escape(layer_lower), text_lower)]
+                self._log("info", f"公司名命中: '{layer}' (第{company_layers.index(layer)+1}/{len(company_layers)}层)")
+                break
 
         result = {
             "keyword_found": keyword_count > 0,
             "keyword_count": keyword_count,
             "keyword_positions": keyword_positions[:5],
-            "company_found": company_count > 0,
+            "company_found": company_found,
             "company_count": company_count,
+            "company_matched": company_matched,
             "confidence": 0.0,
             "reason": "",
         }
@@ -639,18 +738,18 @@ class AIPlatformChecker(ABC):
             result["confidence"] = min(0.5 + keyword_count * 0.1, 0.9)
             result["reason"] = f"关键词'{keyword}'出现{keyword_count}次"
 
-        if company_count > 0:
-            result["company_found"] = True
+        if company_found:
             result["confidence"] = min(result["confidence"] + 0.2, 0.95)
-            result["reason"] += f", 公司名'{company}'出现{company_count}次"
+            note = f" (匹配为'{company_matched}')" if company_matched != company else ""
+            result["reason"] += f", 公司名出现{company_count}次{note}"
 
         if len(text) < 100 and keyword_count > 0:
             result["confidence"] = min(result["confidence"] + 0.1, 0.85)
 
         self._log(
             "info",
-            f"关键词检测完成: 关键词={result['keyword_found']}({keyword_count}次), "
-            f"公司={result['company_found']}({company_count}次), "
+            f"检测完成: 关键词={result['keyword_found']}({keyword_count}次), "
+            f"公司={result['company_found']}({company_count}次, 层:'{company_matched}'), "
             f"置信度={result['confidence']:.2f}",
         )
 

@@ -52,11 +52,12 @@ from backend.services.playwright.publishers.base import registry
 class AuthTask:
     """授权任务模型"""
 
-    def __init__(self, platform: str, account_id: Optional[int] = None, account_name: Optional[str] = None):
+    def __init__(self, platform: str, account_id: Optional[int] = None, account_name: Optional[str] = None, user_id: Optional[int] = None):
         self.task_id = str(uuid.uuid4())
         self.platform = platform
         self.account_id = account_id
         self.account_name = account_name
+        self.user_id = user_id  # 用户归属，授权成功后创建账号时使用
         self.status = "pending"  # pending, running, success, failed, timeout
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -146,8 +147,9 @@ class PlaywrightManager:
             logger.success("✅ [CDP模式] 浏览器连接成功")
 
         except Exception as e:
-            logger.error(f"❌ [CDP模式] 启动失败: {e}")
-            raise e
+            logger.warning(f"⚠️ [CDP模式] 连接失败 ({e}), 回退到本地浏览器模式")
+            self._use_cdp = False
+            await self._start_local()
 
     async def _start_local(self):
         """在云端启动浏览器（传统模式）"""
@@ -257,19 +259,22 @@ class PlaywrightManager:
     # ==================== 授权相关 ====================
 
     async def create_auth_task(
-        self, platform: str, account_id: Optional[int] = None, account_name: Optional[str] = None
+        self, platform: str, account_id: Optional[int] = None, account_name: Optional[str] = None, user_id: Optional[int] = None
     ) -> AuthTask:
         """
         创建授权任务：启动浏览器，打开登录页，注入JS桥接
         """
-        logger.info(f"[Auth] 开始创建授权任务: platform={platform}, account_id={account_id}")
+        logger.info(f"[Auth] 开始创建授权任务: platform={platform}, account_id={account_id}, user_id={user_id}")
+
+        # 清理过期任务 (5分钟超时)
+        await self._cleanup_expired_tasks(timeout_minutes=5)
 
         await self.start()
 
         if platform not in PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
 
-        task = AuthTask(platform, account_id, account_name)
+        task = AuthTask(platform, account_id, account_name, user_id)
         self._auth_tasks[task.task_id] = task
 
         platform_config = PLATFORMS[platform]
@@ -293,23 +298,19 @@ class PlaywrightManager:
         task.page = login_page
         await login_page.goto(platform_config["login_url"], wait_until="domcontentloaded")
 
-        # Tab 2: 打开本地控制页
-        # 假设 static 目录在 backend 下
-        static_dir = Path(__file__).parent.parent / "static"
-        control_page_path = static_dir / "auth_confirm.html"
-
-        # 兼容性处理：如果找不到文件，使用内置HTML
-        if not control_page_path.exists():
-            logger.warning(f"控制页模板未找到: {control_page_path}")
-            # 这里可以考虑写入一个临时文件或者直接用 data:text/html
-            # 为了简单，我们假设文件存在。实际部署时请确保 backend/static/auth_confirm.html 存在。
-
-        control_page_url = f"file:///{control_page_path.as_posix()}?task_id={task.task_id}&platform={platform}"
-        control_page = await context.new_page()
-        try:
-            await control_page.goto(control_page_url)
-        except Exception as e:
-            logger.error(f"打开控制页失败: {e}")
+        # Tab 2: 控制页（仅非CDP / 本地浏览器模式开启, CDP模式下由前端按钮触发确认）
+        if not self._use_cdp:
+            static_dir = Path(__file__).parent.parent / "static"
+            control_page_path = static_dir / "auth_confirm.html"
+            if control_page_path.exists():
+                control_page_url = f"file:///{control_page_path.as_posix()}?task_id={task.task_id}&platform={platform}"
+                control_page = await context.new_page()
+                try:
+                    await control_page.goto(control_page_url)
+                except Exception as e:
+                    logger.error(f"打开控制页失败: {e}")
+            else:
+                logger.warning(f"控制页模板未找到: {control_page_path}")
 
         task.status = "running"
         logger.info(f"[Auth] 授权任务就绪: {task.task_id}")
@@ -489,6 +490,7 @@ class PlaywrightManager:
                         storage_state=enc_storage,
                         status=1,
                         last_auth_time=datetime.now(),
+                        user_id=task.user_id,  # 🔑 关键修复：绑定用户归属，否则数据隔离过滤掉
                     )
                     db.add(account)
                     db.commit()
@@ -534,6 +536,24 @@ class PlaywrightManager:
             if task_id in self._auth_tasks:
                 del self._auth_tasks[task_id]
             logger.info(f"[Auth] 任务资源已释放: {task_id}")
+
+    async def _cleanup_expired_tasks(self, timeout_minutes: int = 5):
+        """清理超时未完成的授权任务"""
+        from datetime import timedelta
+        now = datetime.now()
+        expired = [
+            tid for tid, task in self._auth_tasks.items()
+            if task.status in ("pending", "running")
+            and now - task.created_at > timedelta(minutes=timeout_minutes)
+        ]
+        for tid in expired:
+            task = self._auth_tasks.get(tid)
+            if task:
+                task.status = "timeout"
+                task.error_message = f"授权超时（{timeout_minutes}分钟），请重试"
+            await self.close_auth_task(tid)
+        if expired:
+            logger.info(f"[Auth] 清理了 {len(expired)} 个过期授权任务")
 
     async def _extract_username(self, page: Page, platform: str) -> Optional[str]:
         """
